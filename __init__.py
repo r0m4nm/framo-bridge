@@ -426,7 +426,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
         global server_instance
         
         if not server_instance:
-            self.report({'ERROR'}, "Server not running. Please restart the addon.")
+            self.report({'ERROR'}, "Server not running. Please restart the the addon.")
             return {'CANCELLED'}
         
         # Get settings
