@@ -11,33 +11,47 @@ from typing import List, Tuple, Optional
 
 # Required dependencies
 REQUIRED_DEPENDENCIES = {
+    'pillow': {
+        'name': 'Pillow',
+        'description': 'Image processing library for texture optimization',
+        'required_for': ['texture_analyzer'],
+        'optional': False,
+        'install_order': 1
+    },
+    'numpy': {
+        'name': 'numpy',
+        'description': 'Numerical computing (required for image processing)',
+        'required_for': ['texture_analyzer'],
+        'optional': False,
+        'install_order': 2
+    },
     'trimesh': {
         'name': 'trimesh',
         'description': 'Fast mesh decimation and repair',
         'required_for': ['mesh_repair', 'fast_decimation'],
-        'optional': False,
-        'install_order': 1
+        'optional': True,
+        'install_order': 3
     },
     'scipy': {
         'name': 'scipy',
         'description': 'Scientific computing (required for quadric decimation)',
         'required_for': ['fast_decimation'],
-        'optional': False,
-        'install_order': 2
+        'optional': True,
+        'install_order': 4
     },
     'networkx': {
         'name': 'networkx',
         'description': 'Graph algorithms (for mesh normals, hole filling, watertight)',
         'required_for': ['mesh_repair'],
         'optional': True,
-        'install_order': 3
+        'install_order': 5
     },
     'fast_simplification': {
         'name': 'fast-simplification',
         'description': 'Fast mesh simplification for Trimesh',
         'required_for': ['fast_decimation'],
-        'optional': False,
-        'install_order': 4
+        'optional': True,
+        'install_order': 6
     }
 }
 
@@ -52,6 +66,11 @@ def check_package_installed(package_name: str) -> bool:
     try:
         # Handle packages with different pip vs import names
         import_name = package_name.replace('-', '_')
+        
+        # Special case for Pillow (pip name) vs PIL (import name)
+        if package_name.lower() == 'pillow':
+            import_name = 'PIL'
+        
         __import__(import_name)
         return True
     except ImportError:
@@ -135,7 +154,7 @@ class FRAMO_OT_install_dependencies(bpy.types.Operator):
     """Install required Python dependencies"""
     bl_idname = "framo.install_dependencies"
     bl_label = "Install Dependencies"
-    bl_description = "Install required Python packages (trimesh, scipy, fast-simplification)"
+    bl_description = "Install required Python packages (Pillow, numpy, trimesh, scipy, fast-simplification)"
     
     package: bpy.props.StringProperty(
         name="Package",

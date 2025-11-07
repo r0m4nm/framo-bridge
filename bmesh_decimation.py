@@ -134,8 +134,9 @@ def decimate_with_modifier(obj, target_ratio: float, verbose: bool = True) -> bo
         # Apply the modifier
         mesh_before = len(obj.data.polygons)
         
-        # Store current selection state
-        previous_selection = bpy.context.view_layer.objects.active
+        # Store current selection state (ALL selected objects, not just active)
+        previous_selected = [o for o in bpy.context.selected_objects]
+        previous_active = bpy.context.view_layer.objects.active
         previous_mode = bpy.context.object.mode if bpy.context.object else 'OBJECT'
         
         # Select and make active
@@ -152,9 +153,13 @@ def decimate_with_modifier(obj, target_ratio: float, verbose: bool = True) -> bo
         
         mesh_after = len(obj.data.polygons)
         
-        # Restore selection
-        if previous_selection:
-            bpy.context.view_layer.objects.active = previous_selection
+        # Restore full selection state
+        bpy.ops.object.select_all(action='DESELECT')
+        for prev_obj in previous_selected:
+            if prev_obj and prev_obj.name in bpy.data.objects:
+                prev_obj.select_set(True)
+        if previous_active and previous_active.name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = previous_active
         
         if verbose:
             reduction_pct = ((mesh_before - mesh_after) / mesh_before * 100) if mesh_before > 0 else 0

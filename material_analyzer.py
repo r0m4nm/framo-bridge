@@ -25,8 +25,10 @@ SUPPORTED_UTILITY_NODES = {
     'MATH',  # Math
     'MIX',  # Mix (limited support)
     'VALTORGB',  # ColorRamp
-    'SEPRGB',  # Separate RGB
-    'COMBRGB',  # Combine RGB
+    'SEPRGB',  # Separate RGB (older node, still supported)
+    'SEPARATE_COLOR',  # Separate Color (Blender 3.3+, replaces Separate RGB)
+    'COMBRGB',  # Combine RGB (older node, still supported)
+    'COMBINE_COLOR',  # Combine Color (Blender 3.3+, replaces Combine RGB)
     'VECT_MATH',  # Vector Math
     'ATTRIBUTE',  # Attribute
 }

@@ -65,6 +65,14 @@ except ImportError:
     UV_UNWRAP_AVAILABLE = False
     print("Warning: uv_unwrap module not available.")
 
+# Try to import texture analyzer module
+try:
+    from . import texture_analyzer
+    TEXTURE_ANALYZER_AVAILABLE = True
+except ImportError:
+    TEXTURE_ANALYZER_AVAILABLE = False
+    print("Warning: texture_analyzer module not available.")
+
 # Global server instance
 server_instance = None
 server_thread = None
@@ -78,6 +86,14 @@ class MaterialExpandedState(PropertyGroup):
         name="Expanded",
         description="Whether this material's details are expanded",
         default=False
+    )
+
+class TextureExcludeMaterial(PropertyGroup):
+    """Property group to store material names to exclude from texture optimization"""
+    material_name: bpy.props.StringProperty(
+        name="Material Name",
+        description="Name of the material to exclude from texture optimization",
+        default=""
     )
 
 class FramoExportSettings(PropertyGroup):
@@ -263,6 +279,77 @@ class FramoExportSettings(PropertyGroup):
         description="Preserve border/boundary edges during Trimesh decimation",
         default=True
     )
+    
+    # Texture Optimization Settings
+    enable_texture_optimization: BoolProperty(
+        name="Optimize Textures",
+        description="Scale down textures and convert to JPEG for smaller file sizes",
+        default=True
+    )
+    
+    texture_max_size: EnumProperty(
+        name="Max Texture Size",
+        description="Maximum texture dimension (longest side will be scaled to this size)",
+        items=[
+            ('2048', "2K (2048px)", "Maximum texture size of 2048 pixels"),
+            ('1024', "1K (1024px)", "Maximum texture size of 1024 pixels (recommended)"),
+            ('512', "512px", "Maximum texture size of 512 pixels"),
+            ('256', "256px", "Maximum texture size of 256 pixels"),
+        ],
+        default='1024'
+    )
+    
+    texture_exclude_materials: bpy.props.CollectionProperty(
+        type=TextureExcludeMaterial,
+        name="Excluded Materials",
+        description="Materials to exclude from texture optimization"
+    )
+    
+    texture_exclude_materials_index: bpy.props.IntProperty(
+        name="Excluded Materials Index",
+        default=0
+    )
+    
+    # Export status for loading indicator
+    export_status: bpy.props.StringProperty(
+        name="Export Status",
+        description="Current export operation status",
+        default=""
+    )
+    
+    is_exporting: BoolProperty(
+        name="Is Exporting",
+        description="Whether an export operation is currently in progress",
+        default=False
+    )
+
+def update_export_status(context, status_text):
+    """Update export status and force UI refresh"""
+    settings = context.scene.framo_export_settings
+    settings.export_status = status_text
+    
+    # Force UI refresh
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
+    
+    # Force Blender to process events so UI updates immediately
+    bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+
+def clear_export_status(context):
+    """Clear export status - used with timer"""
+    try:
+        settings = context.scene.framo_export_settings
+        settings.export_status = ""
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+    except:
+        pass  # Context may no longer be valid
+    
+    return None  # Don't repeat the timer
 
 def update_compression_preset(self, context):
     settings = context.scene.framo_export_settings
@@ -437,6 +524,10 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             self.report({'ERROR'}, "No objects selected. Please select at least one object to export.")
             return {'CANCELLED'}
         
+        # Mark export as in progress
+        settings.is_exporting = True
+        update_export_status(context, "Preparing export...")
+        
         # Initialize variables that need to be accessible in finally block
         temp_objects = []
         original_selection = context.selected_objects.copy() if context.selected_objects else []
@@ -454,6 +545,8 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Create temporary copies if decimation, repair, or UV unwrapping is enabled
             if (settings.enable_decimation or settings.enable_mesh_repair or settings.enable_auto_uv) and mesh_objects:
+                update_export_status(context, f"Creating temporary copies of {len(mesh_objects)} object(s)...")
+                
                 # Deselect all first
                 bpy.ops.object.select_all(action='DESELECT')
                 
@@ -483,6 +576,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     objects_to_unwrap = temp_objects if temp_objects else mesh_objects
                     
                     if objects_to_unwrap:
+                        update_export_status(context, f"UV unwrapping {len(objects_to_unwrap)} object(s)...")
                         uv_stats = uv_unwrap.auto_unwrap_objects(
                             objects_to_unwrap,
                             angle_limit=66.0,
@@ -501,11 +595,14 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     objects_to_repair = temp_objects if temp_objects else mesh_objects
                     
                     if objects_to_repair:
+                        update_export_status(context, f"Repairing {len(objects_to_repair)} mesh(es)...")
                         repaired_count = 0
                         total_verts_removed = 0
                         total_faces_removed = 0
                         
-                        for obj in objects_to_repair:
+                        for idx, obj in enumerate(objects_to_repair):
+                            update_export_status(context, f"Repairing {obj.name} ({idx+1}/{len(objects_to_repair)})...")
+                            
                             success, stats = mesh_repair.repair_object(
                                 obj,
                                 remove_duplicate_verts=settings.repair_remove_duplicate_verts,
@@ -541,14 +638,19 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     objects_to_decimate = temp_objects if temp_objects else mesh_objects
                     
                     if objects_to_decimate:
+                        update_export_status(context, f"Decimating {len(objects_to_decimate)} mesh(es)...")
+                        
                         decimated_count = 0
                         total_faces_before = 0
                         total_faces_after = 0
                         
-                        for obj in objects_to_decimate:
+                        for idx, obj in enumerate(objects_to_decimate):
                             if len(obj.data.polygons) > 100:  # Only decimate high-poly objects
                                 faces_before = len(obj.data.polygons)
                                 total_faces_before += faces_before
+                                
+                                # Update status for this specific object
+                                update_export_status(context, f"Decimating {obj.name} ({idx+1}/{len(objects_to_decimate)})...")
                                 
                                 # Always use bmesh method with preserve options set to True
                                 success, faces_before_check, faces_after, error_details = fast_decimation.fast_decimate_object(
@@ -584,6 +686,8 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             material_analysis_results = {}
             unsupported_materials = []
             
+            update_export_status(context, "Analyzing materials...")
+            
             if MATERIAL_ANALYZER_AVAILABLE:
                 materials_to_analyze = material_analyzer.get_materials_to_analyze(context)
                 
@@ -604,12 +708,56 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 if len(unsupported_materials) > 5:
                     material_list += f" (+{len(unsupported_materials) - 5} more)"
                 
+                settings.is_exporting = False
+                update_export_status(context, "")
+                
                 self.report(
                     {'ERROR'}, 
                     f"Export blocked: {len(unsupported_materials)} unsupported material(s) found. "
                     f"Fix materials in Material Readiness panel: {material_list}"
                 )
                 return {'CANCELLED'}
+            
+            # Process textures: scale down (NON-DESTRUCTIVE)
+            # WebP conversion happens automatically in Blender's glTF exporter
+            texture_scaled_copies = {}  # Track scaled copies for cleanup
+            
+            if settings.enable_texture_optimization and TEXTURE_ANALYZER_AVAILABLE:
+                update_export_status(context, "Optimizing textures...")
+                try:
+                    # Get target size from settings
+                    target_size = int(settings.texture_max_size)
+                    
+                    # Get excluded material names
+                    excluded_materials = [item.material_name for item in settings.texture_exclude_materials if item.material_name]
+                    
+                    # Scale down textures above target size
+                    # This is NON-DESTRUCTIVE - originals remain in scene
+                    # Format conversion to WebP happens automatically during GLB export
+                    texture_result = texture_analyzer.process_textures(
+                        context,
+                        scale_to_1k=True,
+                        convert_to_jpeg=False,  # Blender's glTF exporter handles WebP conversion
+                        target_size=target_size,
+                        excluded_materials=excluded_materials,
+                        status_callback=lambda msg: update_export_status(context, msg)
+                    )
+                    texture_scaled_copies = texture_result.get('scaled_copies', {})
+                    
+                    # Add texture processing info to export info
+                    if texture_result['scaled'] > 0:
+                        size_label = settings.texture_max_size
+                        info_parts.append(f"Scaled {texture_result['scaled']} texture(s) to {size_label}px")
+                        info_parts.append("WebP conversion (by glTF exporter)")
+                    
+                    # Report errors if any
+                    if texture_result['errors']:
+                        for error in texture_result['errors'][:3]:  # Show first 3 errors
+                            self.report({'WARNING'}, error)
+                except Exception as e:
+                    self.report({'WARNING'}, f"Texture processing error: {str(e)}")
+            
+            update_export_status(context, "Exporting GLB...")
             
             # Create temporary file for GLB export
             with tempfile.NamedTemporaryFile(suffix='.glb', delete=False) as tmp_file:
@@ -632,6 +780,8 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 'use_selection': len(context.selected_objects) > 0,
                 'export_apply': True,  # Apply modifiers
                 'export_extras': True,  # Export custom properties to extras field
+                'export_image_format': 'WEBP',  # Convert all textures to WebP
+                'export_texture_dir': '',  # Pack textures into GLB
             }
             
             # Add Draco compression settings if enabled
@@ -697,6 +847,8 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 }
             
             # Send to server with metadata
+            update_export_status(context, "Uploading to Framo...")
+            
             try:
                 req = urllib.request.Request(
                     'http://localhost:8080/upload-model',
@@ -718,13 +870,42 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             # Report success
             size_mb = len(glb_data) / (1024 * 1024)
             info_str = f" ({', '.join(info_parts)})" if info_parts else ""
+            
+            update_export_status(context, f"✓ Export complete! ({size_mb:.2f}MB)")
             self.report({'INFO'}, f"Exported {size_mb:.2f}MB{info_str} to Framo")
             
+            # Schedule status clear after 3 seconds
+            bpy.app.timers.register(lambda: clear_export_status(context), first_interval=3.0)
+            
         except Exception as e:
+            update_export_status(context, f"✗ Export failed: {str(e)}")
             self.report({'ERROR'}, f"Export failed: {str(e)}")
+            
+            # Schedule status clear after 5 seconds (longer for errors)
+            bpy.app.timers.register(lambda: clear_export_status(context), first_interval=5.0)
+            
             return {'CANCELLED'}
         
         finally:
+            # Clear export status after a brief moment
+            settings.is_exporting = False
+            # Restore original textures and clean up temporary copies
+            if TEXTURE_ANALYZER_AVAILABLE and texture_scaled_copies:
+                try:
+                    # Restore scaled texture references
+                    for original_img, scaled_copy in texture_scaled_copies.items():
+                        if original_img and original_img.name in bpy.data.images:
+                            # Restore original in materials
+                            texture_analyzer.replace_image_in_materials(context, scaled_copy, original_img)
+                            
+                            # Remove scaled copy from Blender data
+                            if scaled_copy and scaled_copy.name in bpy.data.images:
+                                bpy.data.images.remove(scaled_copy)
+                    
+                    print("✓ Restored original textures after export (non-destructive)")
+                except Exception as e:
+                    print(f"Warning: Could not fully restore textures: {e}")
+            
             # Clean up temporary objects created for decimation/repair
             if temp_objects:
                 # Deselect all first
@@ -839,16 +1020,20 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Export Settings:")
         row.operator("framo.reset_export_settings", text="", icon='FILE_REFRESH', emboss=False)
-        box = layout.box()
+        main_box = layout.box()
         
-        # Compression preset
-        row = box.row()
+        # Disable export settings if no objects selected
+        main_box.enabled = len(context.selected_objects) > 0
+        
+        # Compression preset - in its own box
+        compression_box = main_box.box()
+        row = compression_box.row()
         row.label(text="Compression", icon='MODIFIER')
         row.prop(settings, "compression_preset", text="")
         
         # Show custom compression settings if Custom is selected
         if settings.compression_preset == 'CUSTOM':
-            col = box.column(align=True)
+            col = compression_box.column(align=True)
             col.prop(settings, "use_draco")
             
             if settings.use_draco:
@@ -860,35 +1045,25 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                 col.prop(settings, "draco_quantization_normal")
                 col.prop(settings, "draco_quantization_texcoord")
         
-        box.separator()
-        
-        # Auto UV Unwrap
-        row = box.row()
+        # Auto UV Unwrap - in its own box
+        uv_box = main_box.box()
+        row = uv_box.row()
         row.label(text="Auto UV Unwrap (if no uv map present)", icon='UV')
         row.prop(settings, "enable_auto_uv", text="", emboss=True)
         
-        if settings.enable_auto_uv:
-            col = box.column(align=True)
+        if settings.enable_auto_uv and not UV_UNWRAP_AVAILABLE:
+            col = uv_box.column(align=True)
             col.scale_y = 0.85
-            
-            # Check how many selected objects need UV unwrapping
-            mesh_objects = [obj for obj in context.selected_objects if obj.type == 'MESH'] if context.selected_objects else []
-            if mesh_objects and UV_UNWRAP_AVAILABLE:
-                needs_uv = [obj for obj in mesh_objects if not uv_unwrap.has_uv_map(obj)]
-                if needs_uv:
-                    col.label(text=f"{len(needs_uv)} object(s) will be unwrapped", icon='INFO')
-                else:
-                    col.label(text="All objects already have UV maps", icon='CHECKMARK')
-            elif not UV_UNWRAP_AVAILABLE:
-                col.label(text="UV unwrap module not available", icon='ERROR')
+            col.label(text="UV unwrap module not available", icon='ERROR')
         
-        # Decimate
-        row = box.row()
+        # Decimate - in its own box
+        decimate_box = main_box.box()
+        row = decimate_box.row()
         row.label(text="Decimate", icon='MOD_DECIM')
         row.prop(settings, "enable_decimation", text="", emboss=True)
         
         if settings.enable_decimation:
-            col = box.column(align=True)
+            col = decimate_box.column(align=True)
             col.prop(settings, "decimate_ratio", slider=True)
             
             # Show decimation info (without objects count - that's in Selection section)
@@ -901,11 +1076,89 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                 reduction = (1 - settings.decimate_ratio) * 100
                 col.label(text=f"Est. reduction: {reduction:.0f}%")
         
+        # Texture Optimization - in its own box
+        texture_box = main_box.box()
+        row = texture_box.row()
+        row.label(text="Optimize Textures", icon='IMAGE_DATA')
+        row.prop(settings, "enable_texture_optimization", text="", emboss=True)
+        
+        if settings.enable_texture_optimization:
+            col = texture_box.column(align=True)
+            
+            # Check if Pillow is available
+            if not TEXTURE_ANALYZER_AVAILABLE or not texture_analyzer.is_pillow_available():
+                col.separator()
+                warning_row = col.row()
+                warning_row.scale_y = 0.9
+                warning_row.label(text="Pillow not installed", icon='ERROR')
+                
+                if DEPENDENCIES_AVAILABLE:
+                    install_row = col.row()
+                    install_row.scale_y = 1.0
+                    op = install_row.operator("framo.install_dependencies", text="Install Pillow", icon='IMPORT')
+                    op.package = "Pillow"
+            else:
+                # Target size selector
+                col.prop(settings, "texture_max_size", text="Max Size")
+                
+                # Show texture analysis for selected objects
+                if context.selected_objects:
+                    try:
+                        # Get excluded material names
+                        excluded_materials = [item.material_name for item in settings.texture_exclude_materials if item.material_name]
+                        
+                        texture_analysis = texture_analyzer.analyze_textures(context, excluded_materials=excluded_materials)
+                        target_size = int(settings.texture_max_size)
+                        
+                        if texture_analysis['total'] > 0:
+                            # Count how many will be optimized based on target size
+                            textures_above_target = sum(1 for img in texture_analysis['sizes'].keys() 
+                                                       if max(texture_analysis['sizes'][img]) > target_size)
+                            
+                            col.separator()
+                            info_row = col.row()
+                            info_row.scale_y = 0.85
+                            if textures_above_target > 0:
+                                info_row.label(text=f"{texture_analysis['total']} textures ({textures_above_target} will be scaled)", icon='INFO')
+                            else:
+                                info_row.label(text=f"{texture_analysis['total']} textures (all within limit)", icon='CHECKMARK')
+                        elif len(excluded_materials) > 0:
+                            col.separator()
+                            info_row = col.row()
+                            info_row.scale_y = 0.85
+                            info_row.label(text="All textures excluded", icon='INFO')
+                    except Exception as e:
+                        col.separator()
+                        error_row = col.row()
+                        error_row.scale_y = 0.85
+                        error_row.label(text=f"Error: {str(e)}", icon='ERROR')
+                
+                # Exclude materials list
+                col.separator()
+                
+                # List of excluded materials
+                if len(settings.texture_exclude_materials) > 0:
+                    list_col = col.column(align=True)
+                    list_col.scale_y = 0.9
+                    for i, item in enumerate(settings.texture_exclude_materials):
+                        item_row = list_col.row(align=True)
+                        item_row.label(text=f"  • {item.material_name}")
+                        remove_op = item_row.operator("framo.remove_excluded_material", text="", icon='X', emboss=False)
+                        remove_op.index = i
+                
+                # Add material button
+                add_row = col.row()
+                add_row.scale_y = 1.0
+                add_row.operator("framo.add_excluded_material", text="Add Material to Exclude", icon='ADD')
+        
         layout.separator()
         
         # Material Readiness Analyzer
         box = layout.box()
         box.label(text="Material Readiness", icon='MATERIAL')
+        
+        # Disable material readiness if no objects selected
+        box.enabled = len(context.selected_objects) > 0
         
         # Get materials to analyze
         has_unsupported_materials = False
@@ -914,7 +1167,8 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         
         # Check if objects are selected
         if not context.selected_objects:
-            box.label(text="No Objects selected", icon='INFO')
+            # Box is disabled, no need to show message
+            pass
         elif not MATERIAL_ANALYZER_AVAILABLE:
             box.label(text="Material analyzer not available", icon='ERROR')
         else:
@@ -964,16 +1218,28 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                             material_box = col.box()
                             material_col = material_box.column(align=False)
                             
-                            # Material header with status, name, and expand/collapse button
+                            # Material header with status, name, expand/collapse button, and open shading button
                             header_row = material_col.row(align=True)
                             header_row.label(icon='X')
                             
-                            # Material name - use split to make room for expand button
-                            name_split = header_row.split(factor=0.85)
+                            # Material name - use split to make room for buttons
+                            name_split = header_row.split(factor=0.7)
                             name_split.label(text=material_name)
                             
+                            # Button row for actions
+                            button_split = header_row.split(factor=0.3)
+                            
+                            # Open Shading button
+                            open_shading_op = button_split.operator(
+                                "framo.open_material_in_shading",
+                                text="",
+                                icon='SHADING_RENDERED',
+                                emboss=False
+                            )
+                            open_shading_op.material_name = material_name
+                            
                             # Expand/collapse button
-                            expand_op = name_split.operator(
+                            expand_op = button_split.operator(
                                 "framo.toggle_material_expanded",
                                 text="",
                                 icon='TRIA_DOWN' if is_expanded else 'TRIA_RIGHT',
@@ -1039,10 +1305,22 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                             # Add spacing after problematic material
                             col.separator()
         
+        # Export status indicator (loading indicator)
+        if settings.is_exporting and settings.export_status:
+            layout.separator()
+            status_box = layout.box()
+            status_box.alert = False
+            status_row = status_box.row()
+            status_row.alignment = 'CENTER'
+            status_row.label(text=settings.export_status, icon='TIME')
+        
         # Export button
         layout.separator()
         row = layout.row()
         row.scale_y = 2.0
+        
+        # Disable button during export
+        row.enabled = not settings.is_exporting
         
         # Use custom icon if available, otherwise use default EXPORT icon
         icon_id = get_framo_icon()
@@ -1399,6 +1677,153 @@ class FRAMO_OT_replace_material_execute(bpy.types.Operator):
         
         return {'FINISHED'}
 
+class FRAMO_OT_open_material_in_shading(bpy.types.Operator):
+    bl_idname = "framo.open_material_in_shading"
+    bl_label = "Open Material in Shading"
+    bl_description = "Open Shading workspace and select this material"
+    
+    material_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        # Get the material
+        material = bpy.data.materials.get(self.material_name)
+        
+        if not material:
+            self.report({'ERROR'}, f"Material '{self.material_name}' not found")
+            return {'CANCELLED'}
+        
+        # Find an object that uses this material
+        target_object = None
+        material_slot_index = 0
+        
+        # First, try to find it in selected objects
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                for i, slot in enumerate(obj.material_slots):
+                    if slot.material == material:
+                        target_object = obj
+                        material_slot_index = i
+                        break
+                if target_object:
+                    break
+        
+        # If not found in selected objects, search all objects
+        if not target_object:
+            for obj in bpy.data.objects:
+                if obj.type == 'MESH':
+                    for i, slot in enumerate(obj.material_slots):
+                        if slot.material == material:
+                            target_object = obj
+                            material_slot_index = i
+                            break
+                    if target_object:
+                        break
+        
+        if not target_object:
+            self.report({'WARNING'}, f"No object found using material '{self.material_name}'")
+            return {'CANCELLED'}
+        
+        # Deselect all objects first
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        # Select and activate the target object
+        target_object.select_set(True)
+        context.view_layer.objects.active = target_object
+        
+        # Set the material slot as active
+        target_object.active_material_index = material_slot_index
+        
+        # Switch to Shading workspace
+        # Try to find the Shading workspace
+        shading_workspace = None
+        for workspace in bpy.data.workspaces:
+            if workspace.name == 'Shading':
+                shading_workspace = workspace
+                break
+        
+        if shading_workspace:
+            context.window.workspace = shading_workspace
+        else:
+            # Fallback: try to set workspace by name
+            try:
+                bpy.ops.screen.workspace_set(name='Shading')
+            except:
+                self.report({'WARNING'}, "Could not switch to Shading workspace. Please switch manually.")
+        
+        # Set the material as active in the context
+        if target_object.active_material != material:
+            target_object.active_material = material
+        
+        self.report({'INFO'}, f"Opened Shading workspace with material '{self.material_name}'")
+        return {'FINISHED'}
+
+
+class FRAMO_OT_add_excluded_material(bpy.types.Operator):
+    bl_idname = "framo.add_excluded_material"
+    bl_label = "Add Excluded Material"
+    bl_description = "Add a material to exclude from texture optimization"
+    
+    material_name: bpy.props.EnumProperty(
+        name="Material",
+        description="Material to exclude from texture optimization",
+        items=lambda self, context: [(m.name, m.name, "") for m in bpy.data.materials if m.name]
+    )
+    
+    def invoke(self, context, event):
+        if not bpy.data.materials:
+            self.report({'WARNING'}, "No materials found in blend file")
+            return {'CANCELLED'}
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "material_name", text="Material")
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if material already in exclude list
+        for item in settings.texture_exclude_materials:
+            if item.material_name == self.material_name:
+                self.report({'WARNING'}, f"Material '{self.material_name}' is already in the exclude list")
+                return {'CANCELLED'}
+        
+        # Add new item
+        new_item = settings.texture_exclude_materials.add()
+        new_item.material_name = self.material_name
+        
+        self.report({'INFO'}, f"Added '{self.material_name}' to exclude list")
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_remove_excluded_material(bpy.types.Operator):
+    bl_idname = "framo.remove_excluded_material"
+    bl_label = "Remove Excluded Material"
+    bl_description = "Remove a material from the texture optimization exclude list"
+    
+    index: bpy.props.IntProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        if 0 <= self.index < len(settings.texture_exclude_materials):
+            material_name = settings.texture_exclude_materials[self.index].material_name
+            settings.texture_exclude_materials.remove(self.index)
+            self.report({'INFO'}, f"Removed '{material_name}' from exclude list")
+            
+            # Force UI refresh
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+        
+        return {'FINISHED'}
+
 
 def start_server():
     global server_instance, server_thread
@@ -1433,6 +1858,7 @@ def stop_server():
             server_thread = None
 
 classes = [
+    TextureExcludeMaterial,
     MaterialExpandedState,
     FramoExportSettings,
     FRAMO_OT_export_to_web,
@@ -1442,6 +1868,9 @@ classes = [
     FRAMO_OT_toggle_material_expanded,
     FRAMO_OT_replace_material,
     FRAMO_OT_replace_material_execute,
+    FRAMO_OT_open_material_in_shading,
+    FRAMO_OT_add_excluded_material,
+    FRAMO_OT_remove_excluded_material,
     FRAMO_PT_export_panel,
     FRAMO_PT_optimization_tools
 ]
