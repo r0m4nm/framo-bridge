@@ -1,3 +1,4 @@
+# Test change for git push workflow
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
