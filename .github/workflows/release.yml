@@ -61,8 +61,11 @@ jobs:
               else:
                   changelog = f'Release version {version}'
 
+              # Add installation instructions at the top
+              header = f"## Installation\n\n**Download:** `framo-bridge-v{version}.zip` (see Assets below)\n\n**Install:** In Blender, go to Edit > Preferences > Add-ons > Install, select the downloaded .zip file\n\n---\n\n"
+
               with open('/tmp/changelog.txt', 'w') as f:
-                  f.write(changelog)
+                  f.write(header + changelog)
 
               print(f"Changelog extracted for version {version}")
           except Exception as e:
