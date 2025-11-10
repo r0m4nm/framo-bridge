@@ -6,8 +6,8 @@ bl_info = {
     "location": "View3D > Sidebar > Framo Export",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and texture optimization",
     "category": "Import-Export",
-    "doc_url": "https://github.com/romanmoor/framo-exporter",
-    "tracker_url": "https://github.com/romanmoor/framo-exporter/issues",
+    "doc_url": "https://github.com/r0m4nm/framo-bridge",
+    "tracker_url": "https://github.com/r0m4nm/framo-bridge/issues",
     "support": "COMMUNITY",
 }
 

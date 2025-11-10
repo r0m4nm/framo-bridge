@@ -209,7 +209,7 @@ See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 When distributing, zip the entire addon folder:
 
 ```
-framo-exporter/
+framo-bridge/
 ├── __init__.py              # Main addon file
 ├── decimation.py            # Mesh decimation module
 ├── dependencies.py          # Dependency management
@@ -228,15 +228,15 @@ framo-exporter/
 
 To create a distribution-ready zip:
 
-1. **Ensure all files are in a folder named `framo-exporter`**
+1. **Ensure all files are in a folder named `framo-bridge`**
 2. **Zip the entire folder** (not just the contents)
-3. The zip should contain `framo-exporter/` as the root folder
+3. The zip should contain `framo-bridge/` as the root folder
 4. Users can install directly from this zip in Blender
 
 **Correct structure:**
 ```
-framo-exporter.zip
-└── framo-exporter/
+framo-bridge.zip
+└── framo-bridge/
     ├── __init__.py
     ├── decimation.py
     └── ... (other files)
@@ -244,7 +244,7 @@ framo-exporter.zip
 
 **Incorrect structure (don't do this):**
 ```
-framo-exporter.zip
+framo-bridge.zip
 ├── __init__.py
 ├── decimation.py
 └── ... (files at root)
@@ -252,7 +252,7 @@ framo-exporter.zip
 
 ## Contributing
 
-Issues and pull requests welcome at: https://github.com/romanmoor/framo-exporter
+Issues and pull requests welcome at: https://github.com/r0m4nm/framo-bridge
 
 ## License
 
@@ -262,8 +262,8 @@ Copyright (c) 2025 Roman Moor
 
 ## Support
 
-- **Issues**: https://github.com/romanmoor/framo-exporter/issues
-- **Documentation**: https://github.com/romanmoor/framo-exporter
+- **Issues**: https://github.com/r0m4nm/framo-bridge/issues
+- **Documentation**: https://github.com/r0m4nm/framo-bridge
 
 ---
 

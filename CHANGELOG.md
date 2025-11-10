@@ -107,5 +107,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Minor version** (0.X.0): New features, non-breaking changes
 - **Patch version** (0.0.X): Bug fixes, minor improvements
 
-[0.2.0]: https://github.com/romanmoor/framo-exporter/releases/tag/v0.2.0
-[0.1.0]: https://github.com/romanmoor/framo-exporter/releases/tag/v0.1.0
+[0.2.0]: https://github.com/r0m4nm/framo-bridge/releases/tag/v0.2.0
+[0.1.0]: https://github.com/r0m4nm/framo-bridge/releases/tag/v0.1.0

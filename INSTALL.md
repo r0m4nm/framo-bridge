@@ -4,14 +4,14 @@
 
 ### Step 1: Download the Addon
 
-Download the latest `framo-exporter.zip` from the releases page.
+Download the latest `framo-bridge.zip` from the releases page.
 
 ### Step 2: Install in Blender
 
 1. Open Blender
 2. Go to **Edit → Preferences → Add-ons**
 3. Click **Install...** button (top right)
-4. Navigate to the downloaded `framo-exporter.zip` file
+4. Navigate to the downloaded `framo-bridge.zip` file
 5. Select the zip file and click **Install Add-on**
 6. Find "Import-Export: Framo Bridge" in the addon list
 7. **Check the box** to enable it
@@ -45,7 +45,7 @@ That's it! You're ready to export.
 
 If you have the unzipped folder:
 
-1. Copy the entire `framo-exporter` folder to Blender's addons directory:
+1. Copy the entire `framo-bridge` folder to Blender's addons directory:
    - **Windows**: `%APPDATA%\Blender Foundation\Blender\[VERSION]\scripts\addons\`
    - **macOS**: `~/Library/Application Support/Blender/[VERSION]/scripts/addons/`
    - **Linux**: `~/.config/blender/[VERSION]/scripts/addons/`
@@ -124,8 +124,8 @@ For detailed usage instructions, see [README.md](README.md)
 
 ## Support
 
-- **Issues**: https://github.com/romanmoor/framo-exporter/issues
-- **Documentation**: https://github.com/romanmoor/framo-exporter
+- **Issues**: https://github.com/r0m4nm/framo-bridge/issues
+- **Documentation**: https://github.com/r0m4nm/framo-bridge
 
 ## Updating the Addon
 
