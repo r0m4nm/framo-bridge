@@ -1,9 +1,9 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (3, 0, 0),
-    "location": "View3D > Sidebar > Framo Export",
+    "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and texture optimization",
     "category": "Import-Export",
     "doc_url": "https://github.com/r0m4nm/framo-bridge",
@@ -925,7 +925,7 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
     bl_idname = "FRAMO_PT_export_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Framo Export"
+    bl_category = "Framo Bridge"
     
     def draw(self, context):
         global server_instance, framo_user_info

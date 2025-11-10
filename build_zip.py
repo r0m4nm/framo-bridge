@@ -36,6 +36,7 @@ EXCLUDE_PATTERNS = [
     'build_zip.py',
     'framo-bridge-*.zip',
     'framo-exporter-*.zip',
+    'builds',
 ]
 
 def should_exclude(file_path):
@@ -53,9 +54,13 @@ def create_zip():
     # Get the project root directory
     project_root = Path(__file__).parent
     
+    # Create builds directory if it doesn't exist
+    builds_dir = project_root / 'builds'
+    builds_dir.mkdir(exist_ok=True)
+    
     # Output zip file name
-    zip_filename = 'framo-bridge-v0.2.0.zip'
-    zip_path = project_root / zip_filename
+    zip_filename = 'framo-bridge-v0.2.1.zip'
+    zip_path = builds_dir / zip_filename
     
     # Remove existing zip if it exists
     if zip_path.exists():
