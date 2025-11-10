@@ -5,9 +5,17 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2025-11-09
+## [0.1.0] - 2025-01-10
 
 ### Added
+- **Auto-Update System**: Seamless updates directly from within Blender
+  - Check for updates from GitHub releases
+  - One-click download and installation
+  - Automatic update check on startup (configurable)
+  - View changelog before updating
+  - Update notification UI in main panel
+  - Restart-based installation for safety
+  - Background download with progress indicator
 - **Mesh Decimation**: Advanced polygon reduction with multiple algorithms
   - Collapse decimation (edge collapse)
   - Un-Subdivide (remove subdivision levels)
@@ -107,5 +115,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Minor version** (0.X.0): New features, non-breaking changes
 - **Patch version** (0.0.X): Bug fixes, minor improvements
 
-[0.2.0]: https://github.com/r0m4nm/framo-bridge/releases/tag/v0.2.0
 [0.1.0]: https://github.com/r0m4nm/framo-bridge/releases/tag/v0.1.0

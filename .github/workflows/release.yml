@@ -1,0 +1,121 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v0.1.0, v0.2.1, etc.
+
+permissions:
+  contents: write  # Required for creating releases
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          # Get tag name (e.g., v0.1.0)
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          # Remove 'v' prefix to get version (e.g., 0.1.0)
+          VERSION=${TAG_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          echo "Building release for version: $VERSION"
+
+      - name: Verify version matches __init__.py
+        run: |
+          # Extract version from __init__.py
+          INIT_VERSION=$(python -c "
+import re
+with open('__init__.py', 'r') as f:
+    content = f.read()
+    match = re.search(r'\"version\":\s*\((\d+),\s*(\d+),\s*(\d+)\)', content)
+    if match:
+        print(f'{match.group(1)}.{match.group(2)}.{match.group(3)}')
+    else:
+        exit(1)
+")
+
+          TAG_VERSION="${{ steps.get_version.outputs.version }}"
+
+          echo "Version in __init__.py: $INIT_VERSION"
+          echo "Version from tag: $TAG_VERSION"
+
+          if [ "$INIT_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Version mismatch!"
+            echo "  __init__.py has version: $INIT_VERSION"
+            echo "  Tag specifies version: $TAG_VERSION"
+            echo "Please update the version in __init__.py to match the tag."
+            exit 1
+          fi
+
+          echo "Version verified: $INIT_VERSION"
+
+      - name: Build addon zip
+        run: |
+          python build_zip.py
+
+          # Verify the zip was created
+          ZIP_FILE="builds/framo-bridge-v${{ steps.get_version.outputs.version }}.zip"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: Build failed - zip file not found: $ZIP_FILE"
+            exit 1
+          fi
+
+          echo "Build successful: $ZIP_FILE"
+          ls -lh "$ZIP_FILE"
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          # Extract changelog section for this version
+          CHANGELOG=$(python -c "
+import re
+with open('CHANGELOG.md', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Find the section for this version
+pattern = rf'## \[{re.escape(VERSION)}\].*?\n(.*?)(?=\n## \[|\Z)'
+match = re.search(pattern, content, re.DOTALL)
+
+if match:
+    print(match.group(1).strip())
+else:
+    print(f'Release version {VERSION}')
+" || echo "Release version $VERSION")
+
+          # Save to file for multiline content
+          echo "$CHANGELOG" > /tmp/changelog.txt
+          echo "changelog_file=/tmp/changelog.txt" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Framo Bridge v${{ steps.get_version.outputs.version }}
+          body_path: ${{ steps.changelog.outputs.changelog_file }}
+          files: builds/framo-bridge-v${{ steps.get_version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release summary
+        run: |
+          echo "✅ Release created successfully!"
+          echo "📦 Version: v${{ steps.get_version.outputs.version }}"
+          echo "📎 Asset: framo-bridge-v${{ steps.get_version.outputs.version }}.zip"
+          echo "🔗 View release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.get_version.outputs.version }}"

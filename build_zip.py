@@ -6,11 +6,13 @@ Creates a zip with framo-bridge/ as the root folder.
 
 import os
 import zipfile
+import re
 from pathlib import Path
 
 # Files and folders to include
 INCLUDE_FILES = [
     '__init__.py',
+    'updater.py',
     'decimation.py',
     'dependencies.py',
     'material_analyzer.py',
@@ -39,27 +41,51 @@ EXCLUDE_PATTERNS = [
     'builds',
 ]
 
+def get_version_from_init():
+    """Parse version from __init__.py bl_info."""
+    project_root = Path(__file__).parent
+    init_file = project_root / '__init__.py'
+
+    if not init_file.exists():
+        raise FileNotFoundError("__init__.py not found")
+
+    with open(init_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Match version tuple in bl_info
+    match = re.search(r'"version":\s*\((\d+),\s*(\d+),\s*(\d+)\)', content)
+
+    if not match:
+        raise ValueError("Could not find version in __init__.py")
+
+    major, minor, patch = match.groups()
+    return f"{major}.{minor}.{patch}"
+
 def should_exclude(file_path):
     """Check if a file should be excluded from the zip."""
     path_str = str(file_path)
-    
+
     for pattern in EXCLUDE_PATTERNS:
         if pattern in path_str:
             return True
-    
+
     return False
 
 def create_zip():
     """Create the distribution zip file."""
     # Get the project root directory
     project_root = Path(__file__).parent
-    
+
+    # Get version from __init__.py
+    version = get_version_from_init()
+    print(f"Building Framo Bridge v{version}...")
+
     # Create builds directory if it doesn't exist
     builds_dir = project_root / 'builds'
     builds_dir.mkdir(exist_ok=True)
-    
-    # Output zip file name
-    zip_filename = 'framo-bridge-v0.2.1.zip'
+
+    # Output zip file name (auto-generated from version)
+    zip_filename = f'framo-bridge-v{version}.zip'
     zip_path = builds_dir / zip_filename
     
     # Remove existing zip if it exists

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 1),
+    "version": (0, 1, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and texture optimization",
@@ -64,6 +64,14 @@ except ImportError:
     TEXTURE_ANALYZER_AVAILABLE = False
     print("Warning: texture_analyzer module not available.")
 
+# Try to import updater module
+try:
+    from . import updater
+    UPDATER_AVAILABLE = True
+except ImportError:
+    UPDATER_AVAILABLE = False
+    print("Warning: updater module not available.")
+
 # Global server instance
 server_instance = None
 server_thread = None
@@ -77,6 +85,43 @@ framo_user_info = {
     "email": None,
     "last_connected": None
 }
+
+# Global storage for update state
+update_state = {
+    "checking": False,
+    "update_available": False,
+    "latest_version": None,
+    "update_info": None,
+    "downloading": False,
+    "download_progress": 0.0,
+    "download_error": None,
+    "pending_restart": False,
+    "last_check_time": None
+}
+
+class FramoBridgePreferences(bpy.types.AddonPreferences):
+    """Addon preferences for Framo Bridge"""
+    bl_idname = __name__
+
+    # Update settings
+    auto_check_updates: BoolProperty(
+        name="Automatically check for updates on startup",
+        description="Check for updates every time Blender starts",
+        default=True
+    )
+
+    def draw(self, context):
+        layout = self.layout
+
+        box = layout.box()
+        box.label(text="Update Settings", icon='IMPORT')
+
+        row = box.row()
+        row.prop(self, "auto_check_updates")
+
+        row = box.row()
+        row.operator("framo.check_for_updates", text="Check for Updates Now", icon='FILE_REFRESH')
+
 
 class MaterialExpandedState(PropertyGroup):
     """Property group to track expanded state of materials in the UI"""
@@ -921,14 +966,14 @@ def get_objects_with_high_subdivision(context):
     return high_subdiv_objects
 
 class FRAMO_PT_export_panel(bpy.types.Panel):
-    bl_label = "Framo Bridge"
+    bl_label = f"Framo Bridge v{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}"
     bl_idname = "FRAMO_PT_export_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Framo Bridge"
-    
+
     def draw(self, context):
-        global server_instance, framo_user_info
+        global server_instance, framo_user_info, update_state
 
         layout = self.layout
 
@@ -938,6 +983,54 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             return
 
         settings = context.scene.framo_export_settings
+
+        # ============================================================================
+        # Update Notification - Only shown when relevant
+        # ============================================================================
+        if UPDATER_AVAILABLE:
+            # Only show update UI if there's something to show
+            show_update_ui = (
+                update_state.get("update_available") or
+                update_state.get("downloading") or
+                update_state.get("pending_restart") or
+                update_state.get("download_error")
+            )
+
+            if show_update_ui:
+                update_box = layout.box()
+
+                # State 1: Update available
+                if update_state.get("update_available") and not update_state.get("downloading") and not update_state.get("pending_restart"):
+                    latest_ver = update_state.get("latest_version")
+                    if latest_ver:
+                        latest_str = f"v{latest_ver[0]}.{latest_ver[1]}.{latest_ver[2]}"
+                        row = update_box.row()
+                        row.label(text=f"Update available: {latest_str}", icon='INFO')
+
+                        row = update_box.row()
+                        row.operator("framo.view_changelog", text="View Changes", icon='TEXT')
+                        row.operator("framo.download_update", text="Update Now", icon='IMPORT')
+
+                # State 2: Downloading
+                elif update_state.get("downloading"):
+                    progress = update_state.get("download_progress", 0.0)
+                    row = update_box.row()
+                    row.label(text=f"Downloading update... {int(progress * 100)}%", icon='SORTTIME')
+
+                # State 3: Pending restart
+                elif update_state.get("pending_restart"):
+                    row = update_box.row()
+                    row.label(text="Update ready - Restart Blender", icon='FILE_TICK')
+
+                # State 4: Download error
+                elif update_state.get("download_error"):
+                    error_msg = update_state.get("download_error", "Unknown error")
+                    row = update_box.row()
+                    row.label(text=f"Update error: {error_msg[:40]}", icon='ERROR')
+                    row = update_box.row()
+                    row.operator("framo.check_for_updates", text="Retry", icon='FILE_REFRESH')
+
+                layout.separator()
 
         # Connected user status
         box = layout.box()
@@ -1670,6 +1763,195 @@ class FRAMO_OT_remove_excluded_material(bpy.types.Operator):
         return {'FINISHED'}
 
 
+# ============================================================================
+# Update System Operators
+# ============================================================================
+
+class FRAMO_OT_check_for_updates(bpy.types.Operator):
+    """Check for Framo Bridge updates on GitHub"""
+    bl_idname = "framo.check_for_updates"
+    bl_label = "Check for Updates"
+    bl_description = "Check GitHub for newer versions of Framo Bridge"
+
+    def execute(self, context):
+        global update_state
+
+        if not UPDATER_AVAILABLE:
+            self.report({'ERROR'}, "Updater module not available")
+            return {'CANCELLED'}
+
+        update_state["checking"] = True
+        update_state["update_available"] = False
+        update_state["download_error"] = None
+
+        # Force UI update
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+        # Check for updates in background thread
+        def check_updates():
+            global update_state
+
+            try:
+                current_version = bl_info["version"]
+                update_info = updater.GitHubReleaseChecker.check_for_updates(current_version)
+
+                if update_info:
+                    update_state["update_available"] = True
+                    update_state["latest_version"] = update_info.version
+                    update_state["update_info"] = update_info
+                    update_state["last_check_time"] = datetime.now()
+                else:
+                    update_state["update_available"] = False
+                    update_state["latest_version"] = current_version
+                    update_state["last_check_time"] = datetime.now()
+
+            except Exception as e:
+                print(f"Error checking for updates: {e}")
+                update_state["download_error"] = str(e)
+
+            finally:
+                update_state["checking"] = False
+
+                # Force UI redraw
+                for window in bpy.context.window_manager.windows:
+                    for area in window.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            area.tag_redraw()
+
+        thread = threading.Thread(target=check_updates)
+        thread.daemon = True
+        thread.start()
+
+        self.report({'INFO'}, "Checking for updates...")
+        return {'FINISHED'}
+
+
+class FRAMO_OT_download_update(bpy.types.Operator):
+    """Download and prepare Framo Bridge update"""
+    bl_idname = "framo.download_update"
+    bl_label = "Update Now"
+    bl_description = "Download and install the latest version of Framo Bridge"
+
+    def execute(self, context):
+        global update_state
+
+        if not UPDATER_AVAILABLE:
+            self.report({'ERROR'}, "Updater module not available")
+            return {'CANCELLED'}
+
+        if not update_state.get("update_info"):
+            self.report({'ERROR'}, "No update information available")
+            return {'CANCELLED'}
+
+        update_state["downloading"] = True
+        update_state["download_progress"] = 0.0
+        update_state["download_error"] = None
+
+        # Force UI update
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+        # Download in background thread
+        def download_and_prepare():
+            global update_state
+
+            try:
+                update_info = update_state["update_info"]
+                downloader = updater.UpdateDownloader(update_info)
+
+                # Progress callback
+                def on_progress(progress):
+                    update_state["download_progress"] = progress
+                    for window in bpy.context.window_manager.windows:
+                        for area in window.screen.areas:
+                            if area.type == 'VIEW_3D':
+                                area.tag_redraw()
+
+                # Download
+                zip_path = downloader.download(progress_callback=on_progress)
+
+                if not zip_path:
+                    update_state["download_error"] = downloader.download_error
+                    return
+
+                # Validate
+                if not downloader.validate_zip(zip_path):
+                    update_state["download_error"] = "Invalid zip file"
+                    return
+
+                # Extract
+                extracted_path = downloader.extract_update(zip_path)
+
+                if not extracted_path:
+                    update_state["download_error"] = "Failed to extract update"
+                    return
+
+                # Save pending update
+                updater.UpdateInstaller.save_pending_update(extracted_path, update_info.version)
+
+                # Mark as pending restart
+                update_state["pending_restart"] = True
+                update_state["download_error"] = None
+
+            except Exception as e:
+                print(f"Error downloading update: {e}")
+                update_state["download_error"] = str(e)
+
+            finally:
+                update_state["downloading"] = False
+
+                # Force UI redraw
+                for window in bpy.context.window_manager.windows:
+                    for area in window.screen.areas:
+                        if area.type == 'VIEW_3D':
+                            area.tag_redraw()
+
+        thread = threading.Thread(target=download_and_prepare)
+        thread.daemon = True
+        thread.start()
+
+        self.report({'INFO'}, "Downloading update...")
+        return {'FINISHED'}
+
+
+class FRAMO_OT_view_changelog(bpy.types.Operator):
+    """View changelog for the latest release"""
+    bl_idname = "framo.view_changelog"
+    bl_label = "View Changes"
+    bl_description = "View changelog for the latest release"
+
+    changelog_text: bpy.props.StringProperty(default="")
+
+    def execute(self, context):
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        global update_state
+
+        update_info = update_state.get("update_info")
+        if update_info:
+            self.changelog_text = update_info.changelog
+        else:
+            self.changelog_text = "No changelog available"
+
+        return context.window_manager.invoke_props_dialog(self, width=600)
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+
+        # Split changelog by lines
+        lines = self.changelog_text.split('\n')
+        for line in lines[:30]:  # Limit to first 30 lines
+            col.label(text=line)
+
+        if len(lines) > 30:
+            col.label(text="... (view full changelog on GitHub)")
+
+
 def start_server():
     global server_instance, server_thread
     
@@ -1703,6 +1985,7 @@ def stop_server():
             server_thread = None
 
 classes = [
+    FramoBridgePreferences,
     TextureExcludeMaterial,
     MaterialExpandedState,
     FramoExportSettings,
@@ -1721,6 +2004,14 @@ classes = [
 # Add dependency operator if available
 if DEPENDENCIES_AVAILABLE:
     classes.append(dependencies.FRAMO_OT_install_dependencies)
+
+# Add update operators if available
+if UPDATER_AVAILABLE:
+    classes.extend([
+        FRAMO_OT_check_for_updates,
+        FRAMO_OT_download_update,
+        FRAMO_OT_view_changelog
+    ])
 
 def load_custom_icons():
     """Load custom icons from the icons directory"""
@@ -1764,6 +2055,67 @@ def get_framo_icon():
         return custom_icons["framo_icon"].icon_id
     return 'EXPORT'  # Fallback to default Blender icon
 
+
+# ============================================================================
+# Update System Startup Handler
+# ============================================================================
+
+@bpy.app.handlers.persistent
+def check_pending_update_on_startup(dummy):
+    """Check for pending updates on Blender startup and install if found."""
+    global update_state
+
+    if not UPDATER_AVAILABLE:
+        return
+
+    try:
+        # First, check if there's a pending update to install
+        if updater.UpdateInstaller.has_pending_update():
+            print("Framo Bridge: Pending update detected, installing...")
+
+            # Install the update
+            success = updater.UpdateInstaller.install_pending_update()
+
+            if success:
+                print("Framo Bridge: Update installed successfully!")
+                # The addon will be reloaded with the new version
+            else:
+                print("Framo Bridge: Failed to install pending update")
+                updater.UpdateInstaller.clear_pending_update()
+            return  # Don't check for new updates if we just installed one
+
+        # Auto-check for updates if enabled in preferences
+        prefs = bpy.context.preferences.addons.get(__name__)
+        if prefs and prefs.preferences.auto_check_updates:
+            # Check in background (non-blocking)
+            def auto_check():
+                global update_state
+                try:
+                    current_version = bl_info["version"]
+                    update_info = updater.GitHubReleaseChecker.check_for_updates(current_version)
+
+                    if update_info:
+                        update_state["update_available"] = True
+                        update_state["latest_version"] = update_info.version
+                        update_state["update_info"] = update_info
+                        update_state["last_check_time"] = datetime.now()
+                        print(f"Framo Bridge: Update available - v{update_info.tag_name}")
+                    else:
+                        update_state["update_available"] = False
+                        update_state["latest_version"] = current_version
+                        update_state["last_check_time"] = datetime.now()
+                except Exception as e:
+                    print(f"Framo Bridge: Error auto-checking for updates: {e}")
+
+            # Run in background thread
+            thread = threading.Thread(target=auto_check)
+            thread.daemon = True
+            thread.start()
+
+    except Exception as e:
+        print(f"Framo Bridge: Error during startup update check: {e}")
+
+
 def register():
     global custom_icons
     
@@ -1783,24 +2135,32 @@ def register():
             pass
     
     bpy.types.Scene.framo_export_settings = bpy.props.PointerProperty(type=FramoExportSettings)
-    
+
     # Load custom icons
     load_custom_icons()
-    
+
+    # Register update startup handler
+    if UPDATER_AVAILABLE and check_pending_update_on_startup not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(check_pending_update_on_startup)
+
     start_server()
 
 def unregister():
     global custom_icons
-    
+
     stop_server()
-    
+
+    # Unregister update startup handler
+    if UPDATER_AVAILABLE and check_pending_update_on_startup in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(check_pending_update_on_startup)
+
     # Unregister the property group
     if hasattr(bpy.types.Scene, 'framo_export_settings'):
         try:
             del bpy.types.Scene.framo_export_settings
         except:
             pass
-    
+
     # Unregister classes in reverse order
     for cls in reversed(classes):
         try:
@@ -1808,7 +2168,7 @@ def unregister():
         except (RuntimeError, ValueError):
             # Class not registered, skip
             pass
-    
+
     # Unload custom icons
     if custom_icons:
         try:
