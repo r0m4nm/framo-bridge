@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -1012,52 +1012,10 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         settings = context.scene.framo_export_settings
 
         # ============================================================================
-        # Update Notification - Only shown when relevant
+        # Update System - Silent background updates only (no UI)
+        # Updates are checked and installed automatically on Blender startup
         # ============================================================================
-        if UPDATER_AVAILABLE:
-            # Only show update UI if there's something to show
-            show_update_ui = (
-                update_state.get("update_available") or
-                update_state.get("downloading") or
-                update_state.get("pending_restart") or
-                update_state.get("download_error")
-            )
-
-            if show_update_ui:
-                update_box = layout.box()
-
-                # State 1: Update available
-                if update_state.get("update_available") and not update_state.get("downloading") and not update_state.get("pending_restart"):
-                    latest_ver = update_state.get("latest_version")
-                    if latest_ver:
-                        latest_str = f"v{latest_ver[0]}.{latest_ver[1]}.{latest_ver[2]}"
-                        row = update_box.row()
-                        row.label(text=f"Update available: {latest_str}", icon='INFO')
-
-                        row = update_box.row()
-                        row.operator("framo.view_changelog", text="View Changes", icon='TEXT')
-                        row.operator("framo.download_update", text="Update Now", icon='IMPORT')
-
-                # State 2: Downloading
-                elif update_state.get("downloading"):
-                    progress = update_state.get("download_progress", 0.0)
-                    row = update_box.row()
-                    row.label(text=f"Downloading update... {int(progress * 100)}%", icon='SORTTIME')
-
-                # State 3: Pending restart
-                elif update_state.get("pending_restart"):
-                    row = update_box.row()
-                    row.label(text="Update ready - Restart Blender", icon='FILE_TICK')
-
-                # State 4: Download error
-                elif update_state.get("download_error"):
-                    error_msg = update_state.get("download_error", "Unknown error")
-                    row = update_box.row()
-                    row.label(text=f"Update error: {error_msg[:40]}", icon='ERROR')
-                    row = update_box.row()
-                    row.operator("framo.check_for_updates", text="Retry", icon='FILE_REFRESH')
-
-                layout.separator()
+        # Manual update UI removed - updates happen silently in background
 
         # Connected user status
         box = layout.box()

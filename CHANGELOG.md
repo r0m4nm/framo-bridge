@@ -5,6 +5,25 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-01-11
+
+### Changed
+- **Streamlined update system** - Removed manual update UI from panel
+  - Updates now happen silently in background on Blender startup
+  - No more "Update Now" button or update notifications in UI
+  - Cleaner, less intrusive user experience
+  - Auto-update still fully functional - just invisible to user
+
+### Removed
+- Manual update notification UI (Update Now button, progress bars, error messages)
+- View Changes button for update changelogs
+- All update-related UI elements from main panel
+
+### Technical
+- Kept automatic update check on startup (`check_pending_update_on_startup`)
+- Updates download and install silently without user interaction
+- Panel UI simplified by removing lines 1014-1060 (update notification box)
+
 ## [0.2.0] - 2025-01-11
 
 ### Changed
