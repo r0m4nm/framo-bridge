@@ -5,6 +5,40 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-01-11
+
+### Changed
+- **Removed Pillow dependency** - All texture optimization now uses Blender's native functions
+- Texture scaling handled by new `texture_scaler.py` module (no external dependencies required)
+- WebP compression now exclusively handled by Blender's glTF exporter via `export_image_format: 'WEBP'`
+- Export messages now show which method was used (Native/Pillow) for transparency
+
+### Added
+- **Native texture scaling** with `texture_scaler.py` module
+  - Uses Blender's built-in `image.scale()` function
+  - No external dependencies (Pillow, numpy, etc.)
+  - Maintains aspect ratios automatically
+  - Non-destructive workflow (creates new images, originals preserved)
+  - WebP format support detection (Blender 3.0+)
+- **Smart fallback system** - Automatically uses native scaler, falls back to Pillow if unavailable
+- **Two-stage optimization pipeline**:
+  - Stage 1: Pre-export scaling (texture_scaler.py)
+  - Stage 2: WebP compression (Blender's glTF exporter)
+
+### Technical
+- New file: `texture_scaler.py` - Dependency-free texture scaling module
+- Updated: `texture_analyzer.py` - Retained as legacy fallback, added missing `is_webp_available()` function
+- Updated: `__init__.py` - Integrated native scaler with smart fallback
+- Updated: `build_zip.py` - Includes texture_scaler.py in distribution
+- Updated: `README.md` - Documented native approach and two-stage pipeline
+
+### Benefits
+- ✅ No installation required - Works out of the box
+- ✅ Faster setup - No pip install needed
+- ✅ More reliable - No Pillow version conflicts
+- ✅ Smaller footprint - No external libraries
+- ✅ Easier maintenance - Pure Blender code
+
 ## [0.1.1] - 2025-01-10
 
 ### Fixed

@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 1, 1),
+    "version": (0, 2, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
-    "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and texture optimization",
+    "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
     "category": "Import-Export",
     "doc_url": "https://github.com/r0m4nm/framo-bridge",
     "tracker_url": "https://github.com/r0m4nm/framo-bridge/issues",
