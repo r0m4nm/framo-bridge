@@ -5,6 +5,22 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-01-11
+
+### Fixed
+- **macOS auto-update support** - Fixed auto-update system not working on macOS
+  - Added platform-independent addon directory detection
+  - New `get_addon_directory()` method finds addon path dynamically
+  - No longer assumes hardcoded addon path
+  - Works on all platforms: Windows, macOS, Linux
+  - Falls back to multiple standard addon locations if needed
+
+### Technical
+- Updated `updater.py`: Added `UpdateInstaller.get_addon_directory()` method
+- Uses `addon_prefs.module.__file__` to get actual addon location
+- Checks multiple possible addon locations (addons/, addons_contrib/)
+- Fixes line 371 hardcoded path issue that caused macOS failures
+
 ## [0.2.1] - 2025-01-11
 
 ### Changed

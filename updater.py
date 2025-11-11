@@ -345,6 +345,49 @@ class UpdateInstaller:
             return None
 
     @staticmethod
+    def get_addon_directory() -> Optional[Path]:
+        """
+        Get the actual addon directory path.
+        Works across all platforms (Windows, macOS, Linux).
+
+        Returns:
+            Path to the addon directory, or None if not found
+        """
+        try:
+            import bpy
+
+            # Try to get the addon directory from the addon itself
+            # This works by finding the framo-bridge addon in the loaded addons
+            addon_prefs = bpy.context.preferences.addons.get('framo-bridge')
+
+            if addon_prefs and hasattr(addon_prefs, 'module'):
+                # Get the module's __file__ attribute
+                module = addon_prefs.module
+                if hasattr(module, '__file__'):
+                    # Get the directory containing __init__.py
+                    addon_dir = Path(module.__file__).parent
+                    return addon_dir
+
+            # Fallback: try standard locations
+            scripts_dir = Path(bpy.utils.user_resource('SCRIPTS'))
+            addon_dir = scripts_dir / "addons" / "framo-bridge"
+
+            if addon_dir.exists():
+                return addon_dir
+
+            # Check modules directory (another possible location)
+            modules_dir = scripts_dir / "addons_contrib" / "framo-bridge"
+            if modules_dir.exists():
+                return modules_dir
+
+            print("Could not locate addon directory")
+            return None
+
+        except Exception as e:
+            print(f"Error getting addon directory: {e}")
+            return None
+
+    @staticmethod
     def install_pending_update() -> bool:
         """
         Install the pending update by replacing addon files.
@@ -367,10 +410,10 @@ class UpdateInstaller:
                 UpdateInstaller.clear_pending_update()
                 return False
 
-            # Get addon directory
-            addon_dir = Path(bpy.utils.user_resource('SCRIPTS')) / "addons" / "framo-bridge"
+            # Get addon directory (platform-independent)
+            addon_dir = UpdateInstaller.get_addon_directory()
 
-            if not addon_dir.exists():
+            if not addon_dir or not addon_dir.exists():
                 print(f"Addon directory not found: {addon_dir}")
                 return False
 
