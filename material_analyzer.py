@@ -353,6 +353,15 @@ def get_materials_to_analyze(context):
             for slot in obj.material_slots:
                 if slot.material:
                     materials.add(slot.material)
+        
+        # Check if object is a collection instance
+        elif obj.type == 'EMPTY' and obj.instance_type == 'COLLECTION' and obj.instance_collection:
+            # Get materials from all meshes in the instanced collection
+            for coll_obj in obj.instance_collection.all_objects:
+                if coll_obj.type == 'MESH' and coll_obj.data:
+                    for slot in coll_obj.material_slots:
+                        if slot.material:
+                            materials.add(slot.material)
     
     # Filter out None materials
     materials = {m for m in materials if m is not None}

@@ -56,7 +56,15 @@ except ImportError:
     UV_UNWRAP_AVAILABLE = False
     print("Warning: uv_unwrap module not available.")
 
-# Try to import texture analyzer module
+# Try to import texture scaler module (preferred - no dependencies)
+try:
+    from . import texture_scaler
+    TEXTURE_SCALER_AVAILABLE = True
+except ImportError:
+    TEXTURE_SCALER_AVAILABLE = False
+    print("Warning: texture_scaler module not available.")
+
+# Try to import texture analyzer module (legacy Pillow-based)
 try:
     from . import texture_analyzer
     TEXTURE_ANALYZER_AVAILABLE = True
@@ -716,33 +724,52 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             # WebP conversion happens automatically in Blender's glTF exporter
             texture_scaled_copies = {}  # Track scaled copies for cleanup
             
-            if settings.enable_texture_optimization and TEXTURE_ANALYZER_AVAILABLE:
+            if settings.enable_texture_optimization and (TEXTURE_SCALER_AVAILABLE or TEXTURE_ANALYZER_AVAILABLE):
                 update_export_status(context, "Optimizing textures...")
                 try:
                     # Get target size from settings
                     target_size = int(settings.texture_max_size)
-                    
+
                     # Get excluded material names
                     excluded_materials = [item.material_name for item in settings.texture_exclude_materials if item.material_name]
-                    
+
                     # Scale down textures above target size
                     # This is NON-DESTRUCTIVE - originals remain in scene
-                    # Format conversion to WebP happens automatically during GLB export
-                    texture_result = texture_analyzer.process_textures(
-                        context,
-                        scale_to_1k=True,
-                        convert_to_jpeg=False,  # Blender's glTF exporter handles WebP conversion
-                        target_size=target_size,
-                        excluded_materials=excluded_materials,
-                        status_callback=lambda msg: update_export_status(context, msg)
-                    )
-                    texture_scaled_copies = texture_result.get('scaled_copies', {})
-                    
+                    # Format conversion to WebP happens automatically during GLB export via 'export_image_format': 'WEBP'
+
+                    # Use native texture scaler (preferred - no dependencies) or fallback to Pillow-based
+                    if TEXTURE_SCALER_AVAILABLE:
+                        # Native Blender texture scaling - no external dependencies
+                        texture_result = texture_scaler.process_textures_native(
+                            context,
+                            scale_to_target=True,
+                            compress=False,  # glTF exporter handles WebP conversion
+                            target_size=target_size,
+                            excluded_materials=excluded_materials,
+                            status_callback=lambda msg: update_export_status(context, msg)
+                        )
+                        # Map native result to expected format
+                        texture_scaled_copies = texture_result.get('processed_images', {})
+                    else:
+                        # Fallback to Pillow-based texture analyzer
+                        texture_result = texture_analyzer.process_textures(
+                            context,
+                            scale_to_1k=True,
+                            convert_to_jpeg=False,  # glTF exporter handles WebP conversion
+                            target_size=target_size,
+                            excluded_materials=excluded_materials,
+                            status_callback=lambda msg: update_export_status(context, msg)
+                        )
+                        texture_scaled_copies = texture_result.get('scaled_copies', {})
+
                     # Add texture processing info to export info
-                    if texture_result['scaled'] > 0:
+                    # Both native and Pillow-based return 'scaled' and 'errors' keys
+                    scaled_count = texture_result.get('scaled', 0)
+                    if scaled_count > 0:
                         size_label = settings.texture_max_size
-                        info_parts.append(f"Scaled {texture_result['scaled']} texture(s) to {size_label}px")
-                        info_parts.append("WebP conversion (by glTF exporter)")
+                        method = "Native" if TEXTURE_SCALER_AVAILABLE else "Pillow"
+                        info_parts.append(f"Scaled {scaled_count} texture(s) to {size_label}px ({method})")
+                        info_parts.append("WebP export by glTF exporter")
                     
                     # Report errors if any
                     if texture_result['errors']:

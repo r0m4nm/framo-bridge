@@ -26,6 +26,24 @@ def is_pillow_available():
     return PILLOW_AVAILABLE
 
 
+def is_webp_available():
+    """
+    Check if Pillow supports WebP format.
+
+    Returns:
+        bool: True if WebP is available in Pillow
+    """
+    if not PILLOW_AVAILABLE:
+        return False
+
+    try:
+        from PIL import Image
+        # Check if WebP is in supported formats
+        return 'WEBP' in Image.SAVE and 'WEBP' in Image.OPEN
+    except:
+        return False
+
+
 def get_all_texture_images(context, excluded_materials=None):
     """
     Get all image textures used in materials from selected objects only.

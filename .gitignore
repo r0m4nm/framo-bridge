@@ -23,6 +23,7 @@ Thumbs.db
 #Folders
 .plans/
 .guides/
+.claude/
 
 #zip files
 *.zip

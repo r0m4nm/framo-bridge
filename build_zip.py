@@ -16,7 +16,8 @@ INCLUDE_FILES = [
     'decimation.py',
     'dependencies.py',
     'material_analyzer.py',
-    'texture_analyzer.py',
+    'texture_scaler.py',      # Native texture scaling (no dependencies)
+    'texture_analyzer.py',    # Legacy Pillow-based (fallback)
     'uv_unwrap.py',
     'README.md',
     'CHANGELOG.md',

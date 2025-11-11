@@ -40,18 +40,37 @@ A powerful Blender addon for one-click export of optimized 3D models directly to
    - Navigate to the addon folder and select `__init__.py`
    - Enable "Import-Export: Framo Web GLB Exporter"
 
-### 2. Install Dependencies (Required for Texture Optimization)
+### 2. Texture Optimization (Built-in - No Dependencies Required)
 
-The addon requires Python packages for texture optimization:
-- **Pillow** - Image processing library
-- **numpy** - Numerical computing backend
+The addon uses **Blender's native image operations** for texture optimization:
+
+#### **Texture Scaling (Pre-Export)**
+- Uses Blender's built-in `image.scale()` function
+- **No external dependencies required**
+- Scales large textures (e.g., 4K → 1K) before export
+- Maintains aspect ratios
+- Non-destructive (originals preserved)
+
+#### **WebP Compression (Automatic)**
+- Handled automatically by Blender's glTF exporter
+- Set via `export_image_format: 'WEBP'` parameter
+- Converts all textures to WebP during export
+- Supports transparency (alpha channels)
+- 30-50% smaller than JPEG/PNG
+
+#### **Legacy: Pillow (Optional - Not Required)**
+- Pillow-based texture analyzer still available as fallback
+- Only used if native compressor unavailable
+- Not recommended - adds external dependency
+
+**Installing Pillow (Optional):**
 
 **Automatic Installation:**
 1. After enabling the addon, look for the **"Install Dependencies"** button
 2. Click it and wait 1-2 minutes
 3. **Restart Blender** when installation completes
 
-**Manual Installation (if automatic fails):**
+**Manual Installation:**
 ```powershell
 # Windows
 cd "C:\Program Files\Blender Foundation\Blender 4.4\4.4\python\bin"
@@ -66,13 +85,13 @@ cd /usr/share/blender/4.4/python/bin
 ./python3.11 -m pip install Pillow numpy
 ```
 
-**Note:** Without dependencies, texture optimization features will be unavailable, but mesh decimation and export will still work.
+**Note:** The addon works fully without Pillow. All texture optimization is handled by Blender's native functions and the glTF exporter.
 
 ### 3. Verify Installation
 
 1. In 3D Viewport, press `N` to open sidebar
 2. Look for "Framo Export" tab
-3. Check "Dependencies" section shows all packages as ✓ Installed
+3. Texture optimization will show "Native" method (no dependencies needed)
 4. Server Status should show "Running"
 
 ## Usage
@@ -172,9 +191,39 @@ cd /usr/share/blender/4.4/python/bin
 
 ## Advanced Features
 
+### Texture Optimization Pipeline:
+
+The addon uses a two-stage texture optimization approach:
+
+#### **Stage 1: Pre-Export Scaling** (`texture_scaler.py`)
+- Scales large textures (e.g., 4K → 1K) before export
+- Uses Blender's native `image.scale()` function
+- **No dependencies required** - works out of the box
+- Maintains aspect ratios automatically
+- Non-destructive (creates new images, originals preserved)
+
+#### **Stage 2: WebP Compression** (Blender's glTF Exporter)
+- Automatically converts all textures to WebP during export
+- Handled by `export_image_format: 'WEBP'` parameter
+- Built into Blender's glTF exporter (Blender 3.0+)
+- Supports transparency (alpha channels)
+- 30-50% smaller files than JPEG/PNG
+- No additional processing needed
+
+**Why This Approach?**
+1. **Scaling reduces memory usage** before export (4K textures can be huge)
+2. **glTF exporter handles WebP** conversion perfectly for web delivery
+3. **No external dependencies** - everything uses Blender's built-in functions
+4. **Optimal workflow** - each tool does what it does best
+
+**Legacy Pillow Support:**
+- Pillow-based `texture_analyzer.py` still available as fallback
+- Only used if native compressor unavailable
+- Not recommended - adds unnecessary external dependency
+
 ### Compression Details:
 - **Position Quantization**: Controls vertex position precision
-- **Normal Quantization**: Controls surface normal precision  
+- **Normal Quantization**: Controls surface normal precision
 - **Texture Coordinate Quantization**: Controls UV precision
 - **Compression Levels**: 0-10 (higher = more compression)
 
@@ -210,18 +259,19 @@ When distributing, zip the entire addon folder:
 
 ```
 framo-bridge/
-├── __init__.py              # Main addon file
-├── decimation.py            # Mesh decimation module
-├── dependencies.py          # Dependency management
-├── material_analyzer.py     # Material validation
-├── texture_analyzer.py      # Texture optimization
-├── uv_unwrap.py            # UV unwrapping utilities
-├── test_viewer.html        # Web viewer for testing
-├── icons/                  # Custom icons
-├── README.md               # This file
-├── INSTALL.md              # Installation guide
-├── CHANGELOG.md            # Version history
-└── LICENSE                 # MIT License
+├── __init__.py                    # Main addon file
+├── decimation.py                  # Mesh decimation module
+├── dependencies.py                # Dependency management
+├── material_analyzer.py           # Material validation
+├── texture_scaler.py              # Texture scaling (Blender native - no deps)
+├── texture_analyzer.py            # Texture optimization (Pillow - legacy)
+├── uv_unwrap.py                  # UV unwrapping utilities
+├── test_viewer.html              # Web viewer for testing
+├── icons/                        # Custom icons
+├── README.md                     # This file
+├── INSTALL.md                    # Installation guide
+├── CHANGELOG.md                  # Version history
+└── LICENSE                       # MIT License
 ```
 
 ## Creating Distribution Zip
