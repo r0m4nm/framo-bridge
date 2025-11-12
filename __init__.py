@@ -214,6 +214,31 @@ class SubdivIndividualOverride(PropertyGroup):
         max=6
     )
 
+class DecimateExcludeObject(PropertyGroup):
+    """Property group to store object names to exclude from decimation"""
+    object_name: bpy.props.StringProperty(
+        name="Object Name",
+        description="Name of the object to exclude from decimation",
+        default=""
+    )
+
+class DecimateIndividualOverride(PropertyGroup):
+    """Property group to store individual decimation ratios per object"""
+    object_name: bpy.props.StringProperty(
+        name="Object Name",
+        description="Name of the object with individual decimation override",
+        default=""
+    )
+    
+    override_ratio: bpy.props.FloatProperty(
+        name="Override Ratio",
+        description="Individual decimation ratio override for this object",
+        default=0.1,
+        min=0.01,
+        max=1.0,
+        precision=2
+    )
+
 class FramoExportSettings(PropertyGroup):
     # Compression Settings
     use_draco: BoolProperty(
@@ -356,6 +381,25 @@ class FramoExportSettings(PropertyGroup):
     subdiv_exclude_objects_index: bpy.props.IntProperty(
         name="Excluded Objects Index",
         default=0
+    )
+    
+    # Decimation Exclusion and Individual Override Settings
+    decimate_exclude_objects: bpy.props.CollectionProperty(
+        type=DecimateExcludeObject,
+        name="Excluded Objects",
+        description="Objects to exclude from decimation"
+    )
+    
+    decimate_dropdown_expanded: BoolProperty(
+        name="Show Affected Objects",
+        description="Expand to show all objects affected by decimation",
+        default=False
+    )
+    
+    decimate_individual_overrides: bpy.props.CollectionProperty(
+        type=DecimateIndividualOverride,
+        name="Individual Overrides",
+        description="Individual decimation ratio overrides per object"
     )
     
     # Texture Optimization Settings
@@ -794,6 +838,13 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Perform mesh decimation if enabled (on temp copies) - always use bmesh
             if settings.enable_decimation:
+                # Get excluded object names
+                excluded_objects = [item.object_name for item in settings.decimate_exclude_objects if item.object_name]
+                
+                # Get individual override ratios
+                individual_overrides = {item.object_name: item.override_ratio 
+                                      for item in settings.decimate_individual_overrides}
+                
                 # Collect all objects to process for decimation
                 # - Temp objects: already copied meshes (decimate these)
                 # - Collection instances: find original meshes in collections (decimate originals to affect all instances)
@@ -810,7 +861,9 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 if not temp_objects and mesh_objects:
                     objects_for_decimation.extend(mesh_objects)
                 
-                objects_to_decimate = objects_for_decimation
+                # Filter out excluded objects
+                objects_to_decimate = [obj for obj in objects_for_decimation 
+                                      if obj.name not in excluded_objects]
                 
                 if objects_to_decimate:
                     update_export_status(context, f"Decimating {len(objects_to_decimate)} mesh(es)...")
@@ -819,18 +872,24 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     total_faces_before = 0
                     total_faces_after = 0
                     
-                    for idx, obj in enumerate(objects_to_decimate):
+                    # Convert to sorted list for consistent ordering
+                    meshes_list = sorted(objects_to_decimate, key=lambda x: x.name)
+                    
+                    for idx, obj in enumerate(meshes_list):
                         if len(obj.data.polygons) > 10:  # Only decimate high-poly objects
                             faces_before = len(obj.data.polygons)
                             total_faces_before += faces_before
                             
+                            # Get decimation ratio (individual override or global)
+                            decimate_ratio = individual_overrides.get(obj.name, settings.decimate_ratio)
+                            
                             # Update status for this specific object
-                            update_export_status(context, f"Decimating {obj.name} ({idx+1}/{len(objects_to_decimate)})...")
+                            update_export_status(context, f"Decimating {obj.name} ({idx+1}/{len(meshes_list)})...")
                             
                             # Always use bmesh method with preserve options set to True
                             success, faces_before_check, faces_after, error_details = decimation.decimate_object(
                                 obj,
-                                target_ratio=settings.decimate_ratio,
+                                target_ratio=decimate_ratio,
                                 method='bmesh',
                                 preserve_uv_seams=True,
                                 preserve_sharp_edges=True,
@@ -1334,15 +1393,113 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             col = decimate_box.column(align=True)
             col.prop(settings, "decimate_ratio", slider=True)
             
-            # Show decimation info (without objects count - that's in Selection section)
-            mesh_objects = [obj for obj in context.selected_objects if obj.type == 'MESH'] if context.selected_objects else []
-            high_poly_objects = [obj for obj in mesh_objects if len(obj.data.polygons) > 10]
-            if high_poly_objects:
-                col.separator()
-                total_faces = sum(len(obj.data.polygons) for obj in high_poly_objects)
-                col.label(text=f"Total faces: {total_faces:,}")
-                reduction = (1 - settings.decimate_ratio) * 100
-                col.label(text=f"Est. reduction: {reduction:.0f}%")
+            # Show decimation info for selected objects
+            if context.selected_objects:
+                # Get excluded object names
+                excluded_objects = [item.object_name for item in settings.decimate_exclude_objects if item.object_name]
+                
+                # Get all meshes (including from collection instances)
+                all_mesh_objects = []
+                for obj in context.selected_objects:
+                    if obj.type == 'MESH' and obj.data:
+                        all_mesh_objects.append((obj.name, len(obj.data.polygons)))
+                    elif obj.type == 'EMPTY' and obj.instance_type == 'COLLECTION' and obj.instance_collection:
+                        # Add meshes from collection instances
+                        for coll_obj in obj.instance_collection.all_objects:
+                            if coll_obj.type == 'MESH' and coll_obj.data:
+                                all_mesh_objects.append((coll_obj.name, len(coll_obj.data.polygons)))
+                
+                # Filter high-poly objects
+                high_poly_objects = [(name, faces) for name, faces in all_mesh_objects if faces > 10]
+                
+                if high_poly_objects:
+                    col.separator()
+                    total_faces = sum(faces for _, faces in high_poly_objects)
+                    col.label(text=f"Total faces: {total_faces:,}")
+                    reduction = (1 - settings.decimate_ratio) * 100
+                    col.label(text=f"Est. reduction: {reduction:.0f}%")
+                    
+                    # Get individual override ratios
+                    individual_overrides = {item.object_name: item.override_ratio 
+                                          for item in settings.decimate_individual_overrides}
+                    
+                    # Show all high-poly objects (excluded, with individual overrides, or using global ratio)
+                    objects_to_show = []
+                    for name, faces in high_poly_objects:
+                        is_excluded = name in excluded_objects
+                        objects_to_show.append((name, faces, is_excluded))
+                    
+                    if objects_to_show:
+                        # Count non-excluded objects that will be decimated
+                        non_excluded_count = sum(1 for _, _, excluded in objects_to_show if not excluded)
+                        excluded_count = sum(1 for _, _, excluded in objects_to_show if excluded)
+                        
+                        # Create collapsible dropdown box
+                        dropdown_box = col.box()
+                        dropdown_row = dropdown_box.row()
+                        
+                        # Create summary text
+                        if excluded_count > 0:
+                            summary_text = f"{non_excluded_count} will be decimated, {excluded_count} excluded"
+                        else:
+                            summary_text = f"{non_excluded_count} object(s) will be decimated"
+                        
+                        # Show summary text on the left
+                        dropdown_row.label(text=summary_text)
+                        
+                        # Toggle button with icon on the right
+                        dropdown_row.prop(settings, 'decimate_dropdown_expanded', 
+                                        text="", 
+                                        icon='TRIA_DOWN' if settings.decimate_dropdown_expanded else 'TRIA_RIGHT',
+                                        emboss=False, toggle=True)
+                        
+                        if settings.decimate_dropdown_expanded:
+                            dropdown_content = dropdown_box.column(align=True)
+                            dropdown_content.scale_y = 0.85
+                            
+                            # Get individual override ratios
+                            individual_overrides = {item.object_name: item.override_ratio 
+                                                  for item in settings.decimate_individual_overrides}
+                            
+                            for obj_name, faces, is_excluded in objects_to_show:
+                                info_row = dropdown_content.row(align=True)
+                                
+                                if is_excluded:
+                                    # Excluded objects: no checkbox, just show faces
+                                    info_row.label(text=f"{obj_name}: {faces:,} faces")
+                                else:
+                                    # Check if object has individual override
+                                    has_individual_override = obj_name in individual_overrides
+                                    
+                                    # Checkbox: checked = uses global ratio, unchecked = has individual override
+                                    toggle_op = info_row.operator("framo.toggle_decimate_exclusion", 
+                                                                text="", 
+                                                                icon='CHECKBOX_HLT' if not has_individual_override else 'CHECKBOX_DEHLT',
+                                                                emboss=False)
+                                    toggle_op.object_name = obj_name
+                                    
+                                    if has_individual_override:
+                                        # Show individual override slider (unchecked = individual)
+                                        override_item = None
+                                        for item in settings.decimate_individual_overrides:
+                                            if item.object_name == obj_name:
+                                                override_item = item
+                                                break
+                                        
+                                        if override_item:
+                                            info_row.label(text=f"{obj_name}: {faces:,} faces →")
+                                            slider_row = info_row.row(align=True)
+                                            slider_row.scale_x = 1.0
+                                            slider_row.prop(override_item, "override_ratio", text="", slider=True)
+                                            
+                                            # Remove individual override button
+                                            remove_override_op = info_row.operator("framo.remove_individual_decimate_override", 
+                                                                                  text="", icon='X', emboss=False)
+                                            remove_override_op.object_name = obj_name
+                                    else:
+                                        # Show global ratio info (checked = global ratio)
+                                        reduction_pct = (1 - settings.decimate_ratio) * 100
+                                        info_row.label(text=f"{obj_name}: {faces:,} faces → {reduction_pct:.0f}% reduction")
         
         # Subdivision Override - in its own box
         subdiv_box = main_box.box()
@@ -2264,6 +2421,94 @@ class FRAMO_OT_remove_individual_subdiv_override(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FRAMO_OT_toggle_decimate_exclusion(bpy.types.Operator):
+    bl_idname = "framo.toggle_decimate_exclusion"
+    bl_label = "Toggle Decimation Override Mode"
+    bl_description = "Toggle between global ratio (checked) and individual ratio (unchecked)"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if object has individual override
+        override_index = -1
+        for i, item in enumerate(settings.decimate_individual_overrides):
+            if item.object_name == self.object_name:
+                override_index = i
+                break
+        
+        if override_index >= 0:
+            # Remove individual override (switch to global ratio)
+            settings.decimate_individual_overrides.remove(override_index)
+        else:
+            # Add individual override (switch to individual ratio)
+            # Initialize with the global decimation ratio
+            new_item = settings.decimate_individual_overrides.add()
+            new_item.object_name = self.object_name
+            new_item.override_ratio = settings.decimate_ratio
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_add_individual_decimate_override(bpy.types.Operator):
+    bl_idname = "framo.add_individual_decimate_override"
+    bl_label = "Add Individual Decimation Override"
+    bl_description = "Add an individual decimation ratio override for this object"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if object already has an individual override
+        for item in settings.decimate_individual_overrides:
+            if item.object_name == self.object_name:
+                self.report({'WARNING'}, f"Object '{self.object_name}' already has an individual override")
+                return {'CANCELLED'}
+        
+        # Add new individual override with global decimation ratio
+        new_item = settings.decimate_individual_overrides.add()
+        new_item.object_name = self.object_name
+        new_item.override_ratio = settings.decimate_ratio
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_remove_individual_decimate_override(bpy.types.Operator):
+    bl_idname = "framo.remove_individual_decimate_override"
+    bl_label = "Remove Individual Decimation Override"
+    bl_description = "Remove individual decimation override and use global ratio"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Find and remove the individual override
+        for i, item in enumerate(settings.decimate_individual_overrides):
+            if item.object_name == self.object_name:
+                settings.decimate_individual_overrides.remove(i)
+                break
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
 class FRAMO_OT_remove_excluded_subdiv_object(bpy.types.Operator):
     bl_idname = "framo.remove_excluded_subdiv_object"
     bl_label = "Remove Excluded Object"
@@ -2676,6 +2921,8 @@ classes = [
     TextureExcludeMaterial,
     SubdivExcludeObject,
     SubdivIndividualOverride,
+    DecimateExcludeObject,
+    DecimateIndividualOverride,
     MaterialExpandedState,
     FramoExportSettings,
     FRAMO_OT_export_to_web,
@@ -2692,6 +2939,9 @@ classes = [
     FRAMO_OT_toggle_subdiv_exclusion,
     FRAMO_OT_add_individual_subdiv_override,
     FRAMO_OT_remove_individual_subdiv_override,
+    FRAMO_OT_toggle_decimate_exclusion,
+    FRAMO_OT_add_individual_decimate_override,
+    FRAMO_OT_remove_individual_decimate_override,
     FRAMO_PT_export_panel,
     FRAMO_OT_check_for_updates,
     FRAMO_OT_install_update,
