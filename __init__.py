@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 9),
+    "version": (0, 2, 10),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -135,6 +135,12 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
             if len(error_msg) > 60:
                 error_msg = error_msg[:57] + "..."
             row.label(text=f"Error: {error_msg}", icon='ERROR')
+        elif update_state.get("pending_restart"):
+            # Show success message after installation
+            row = box.row()
+            row.alert = False
+            row.scale_y = 1.3
+            row.label(text="✓ Update installed! Restart Blender to use new version (or disable/re-enable addon in Preferences).", icon='CHECKMARK')
         elif update_state.get("last_check_time"):
             row = box.row()
             if update_state.get("update_available"):
@@ -154,27 +160,10 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
                         row.label(text="Installing update...", icon='TIME')
                     else:
                         op = row.operator("framo.install_update", text="Install Update Now", icon='IMPORT')
-                    
-                    # Show success message if installed
-                    if update_state.get("pending_restart"):
-                        row = box.row()
-                        row.alert = False
-                        row.scale_y = 1.3
-                        row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
-                        row = box.row()
-                        row.scale_y = 0.9
-                        row.label(text="(Or disable/re-enable addon in Preferences)", icon='INFO')
             else:
                 current = bl_info["version"]
                 version_str = f"{current[0]}.{current[1]}.{current[2]}"
                 row.label(text=f"Up to date (v{version_str})", icon='CHECKMARK')
-                
-                # Show restart message if update was installed
-                if update_state.get("pending_restart"):
-                    row = box.row()
-                    row.alert = False
-                    row.scale_y = 1.3
-                    row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
 
 
 class MaterialExpandedState(PropertyGroup):
@@ -1163,7 +1152,15 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         # ============================================================================
         # Update System - Show update notification in main panel
         # ============================================================================
-        if update_state.get("update_available"):
+        if update_state.get("pending_restart"):
+            # Show success message after installation
+            update_box = layout.box()
+            update_box.alert = False
+            row = update_box.row()
+            row.scale_y = 1.3
+            row.label(text="✓ Update installed! Restart Blender to use new version (or disable/re-enable addon in Preferences).", icon='CHECKMARK')
+            layout.separator()
+        elif update_state.get("update_available"):
             latest = update_state.get("latest_version")
             if latest:
                 version_str = f"{latest[0]}.{latest[1]}.{latest[2]}"
@@ -1193,16 +1190,6 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                     if len(error_msg) > 50:
                         error_msg = error_msg[:47] + "..."
                     row.label(text=f"Error: {error_msg}", icon='ERROR')
-                
-                # Show success message if installed
-                if update_state.get("pending_restart"):
-                    row = update_box.row()
-                    row.alert = False
-                    row.scale_y = 1.3
-                    row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
-                    row = update_box.row()
-                    row.scale_y = 0.9
-                    row.label(text="(Or disable/re-enable addon in Preferences)", icon='INFO')
                 
                 layout.separator()
 

@@ -5,6 +5,15 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2025-01-11
+
+### Changed - Update System UI
+- **Improved update success message** - Cleaner post-installation UI
+  - Combined success message into single line
+  - Removed red alert styling from success message
+  - Hide "Update Available" header and "Install Update Now" button after successful installation
+  - Only show success message after installation completes
+
 ## [0.2.9] - 2025-01-11
 
 ### Added - Update System
