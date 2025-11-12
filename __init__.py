@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 7),
+    "version": (0, 2, 8),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -112,13 +112,6 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
     """Addon preferences for Framo Bridge"""
     bl_idname = __name__
 
-    # Update settings
-    auto_check_updates: BoolProperty(
-        name="Automatically check for updates on startup",
-        description="Check for updates every time Blender starts",
-        default=True
-    )
-
     def draw(self, context):
         global update_state
         
@@ -126,9 +119,6 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
 
         box = layout.box()
         box.label(text="Update Settings", icon='IMPORT')
-
-        row = box.row()
-        row.prop(self, "auto_check_updates")
 
         row = box.row()
         op = row.operator("framo.check_for_updates", text="Check for Updates Now", icon='FILE_REFRESH')
@@ -164,10 +154,27 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
                         row.label(text="Installing update...", icon='TIME')
                     else:
                         op = row.operator("framo.install_update", text="Install Update Now", icon='IMPORT')
+                    
+                    # Show success message if installed
+                    if update_state.get("pending_restart"):
+                        row = box.row()
+                        row.alert = False
+                        row.scale_y = 1.3
+                        row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
+                        row = box.row()
+                        row.scale_y = 0.9
+                        row.label(text="(Or disable/re-enable addon in Preferences)", icon='INFO')
             else:
                 current = bl_info["version"]
                 version_str = f"{current[0]}.{current[1]}.{current[2]}"
                 row.label(text=f"Up to date (v{version_str})", icon='CHECKMARK')
+                
+                # Show restart message if update was installed
+                if update_state.get("pending_restart"):
+                    row = box.row()
+                    row.alert = False
+                    row.scale_y = 1.3
+                    row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
 
 
 class MaterialExpandedState(PropertyGroup):
@@ -1154,10 +1161,50 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         settings = context.scene.framo_export_settings
 
         # ============================================================================
-        # Update System - Silent background updates only (no UI)
-        # Updates are checked and installed automatically on Blender startup
+        # Update System - Show update notification in main panel
         # ============================================================================
-        # Manual update UI removed - updates happen silently in background
+        if update_state.get("update_available"):
+            latest = update_state.get("latest_version")
+            if latest:
+                version_str = f"{latest[0]}.{latest[1]}.{latest[2]}"
+                update_box = layout.box()
+                update_box.alert = True
+                row = update_box.row()
+                row.label(text=f"Update Available: v{version_str}", icon='IMPORT')
+                
+                # Show download/install status
+                if update_state.get("downloading"):
+                    row = update_box.row()
+                    progress = update_state.get("download_progress", 0.0)
+                    row.label(text=f"Downloading... {int(progress * 100)}%", icon='TIME')
+                elif update_state.get("installing"):
+                    row = update_box.row()
+                    row.label(text="Installing update...", icon='TIME')
+                else:
+                    row = update_box.row()
+                    row.scale_y = 1.5
+                    op = row.operator("framo.install_update", text="Install Update Now", icon='IMPORT')
+                
+                # Show error if any
+                if update_state.get("download_error"):
+                    row = update_box.row()
+                    row.alert = True
+                    error_msg = update_state["download_error"]
+                    if len(error_msg) > 50:
+                        error_msg = error_msg[:47] + "..."
+                    row.label(text=f"Error: {error_msg}", icon='ERROR')
+                
+                # Show success message if installed
+                if update_state.get("pending_restart"):
+                    row = update_box.row()
+                    row.alert = False
+                    row.scale_y = 1.3
+                    row.label(text="✓ Update installed! Restart Blender to use new version.", icon='CHECKMARK')
+                    row = update_box.row()
+                    row.scale_y = 0.9
+                    row.label(text="(Or disable/re-enable addon in Preferences)", icon='INFO')
+                
+                layout.separator()
 
         # Connected user status
         box = layout.box()
@@ -2250,34 +2297,12 @@ class FRAMO_OT_check_for_updates(bpy.types.Operator):
                     update_state["download_error"] = None
                     print(f"Framo Bridge: Update available - v{update_info.tag_name}")
                     
-                    # Auto-installation: Automatically download and install the update
-                    print("Framo Bridge: Auto-installing update...")
-                    try:
-                        downloader = updater.UpdateDownloader(update_info)
-                        
-                        # Download
-                        zip_path = downloader.download()
-                        if zip_path and downloader.validate_zip(zip_path):
-                            extracted_path = downloader.extract_update(zip_path)
-                            if extracted_path:
-                                # Save and install
-                                updater.UpdateInstaller.save_pending_update(extracted_path, update_info.version)
-                                success = updater.UpdateInstaller.install_pending_update()
-                                if success:
-                                    print("Framo Bridge: Update auto-installed successfully!")
-                                    update_state["update_available"] = False
-                                    print("Framo Bridge: Please restart Blender or reload the addon to use the new version.")
-                                else:
-                                    print("Framo Bridge: Auto-installation failed, you can install manually")
-                            else:
-                                print("Framo Bridge: Failed to extract update, you can install manually")
-                        else:
-                            print("Framo Bridge: Failed to download/validate update, you can install manually")
-                    except Exception as e:
-                        print(f"Framo Bridge: Auto-installation error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        print("Framo Bridge: You can install the update manually using the button")
+                    # Note: Auto-installation while Blender is running is not possible
+                    # because addon files are loaded in memory and cannot be replaced.
+                    # We'll just detect the update and let the user install it manually
+                    # or it will be installed on next Blender restart.
+                    print("Framo Bridge: Update detected! Use 'Install Update Now' button to install.")
+                    print("Framo Bridge: Note: Update will be installed and addon will reload on next Blender restart.")
                 else:
                     update_state["update_available"] = False
                     update_state["latest_version"] = current_version
@@ -2484,19 +2509,35 @@ class FRAMO_OT_install_update(bpy.types.Operator):
                 except (AttributeError, RuntimeError):
                     pass
 
-                # Install immediately (not pending)
-                # Save as pending first, then install
+                # Install the update
+                # Note: We can install files while Blender is running, but the addon
+                # needs to be reloaded to use the new version. We'll save as pending
+                # and install, then prompt user to restart.
                 updater.UpdateInstaller.save_pending_update(extracted_path, update_info.version)
                 
-                # Install the update
+                # Try to install immediately
                 success = updater.UpdateInstaller.install_pending_update()
 
                 if success:
                     print("Framo Bridge: Update installed successfully!")
                     update_state["installing"] = False
                     update_state["download_error"] = None
-                    update_state["update_available"] = False
-                    print("Framo Bridge: Update complete! Please restart Blender or reload the addon to use the new version.")
+                    # Keep update_available as True so UI shows the success message
+                    update_state["pending_restart"] = True
+                    print("=" * 60)
+                    print("Framo Bridge: ✓ UPDATE INSTALLED SUCCESSFULLY!")
+                    print("Framo Bridge: Please RESTART BLENDER to use the new version.")
+                    print("Framo Bridge: (Or disable/re-enable the addon in Preferences)")
+                    print("=" * 60)
+                    
+                    # Force UI redraw to show success message
+                    try:
+                        for window in bpy.context.window_manager.windows:
+                            for area in window.screen.areas:
+                                if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                                    area.tag_redraw()
+                    except (AttributeError, RuntimeError):
+                        pass
                 else:
                     update_state["download_error"] = "Failed to install update"
                     update_state["installing"] = False
@@ -2708,44 +2749,38 @@ def check_pending_update_on_startup(dummy):
                 updater.UpdateInstaller.clear_pending_update()
             return  # Don't check for new updates if we just installed one
 
-        # Auto-check for updates if enabled in preferences
-        # Use try-except since bpy.context might not be available during startup (especially on macOS)
-        auto_check_enabled = True  # Default to True
-        try:
-            if hasattr(bpy.context, 'preferences'):
-                prefs = bpy.context.preferences.addons.get(__name__)
-                if prefs and hasattr(prefs, 'preferences'):
-                    auto_check_enabled = prefs.preferences.auto_check_updates
-        except (AttributeError, RuntimeError):
-            # bpy.context not available - use default (check for updates)
-            # This is common on macOS during startup
-            pass
+        # Auto-check for updates on startup (always enabled)
+        # Check in background (non-blocking)
+        def auto_check():
+            global update_state
+            try:
+                current_version = bl_info["version"]
+                update_info = updater.GitHubReleaseChecker.check_for_updates(current_version)
 
-        if auto_check_enabled:
-            # Check in background (non-blocking)
-            def auto_check():
-                global update_state
-                try:
-                    current_version = bl_info["version"]
-                    update_info = updater.GitHubReleaseChecker.check_for_updates(current_version)
+                if update_info:
+                    update_state["update_available"] = True
+                    update_state["latest_version"] = update_info.version
+                    update_state["update_info"] = update_info
+                    update_state["last_check_time"] = datetime.now()
+                    print(f"Framo Bridge: Update available - v{update_info.tag_name}")
+                    
+                    # Note: Auto-installation while Blender is running is not possible
+                    # because addon files are loaded in memory and cannot be replaced.
+                    # We'll just detect the update and let the user install it manually
+                    # or it will be installed on next Blender restart.
+                    print("Framo Bridge: Update detected! Use 'Install Update Now' button to install.")
+                    print("Framo Bridge: Note: Update will be installed and addon will reload on next Blender restart.")
+                else:
+                    update_state["update_available"] = False
+                    update_state["latest_version"] = current_version
+                    update_state["last_check_time"] = datetime.now()
+            except Exception as e:
+                print(f"Framo Bridge: Error auto-checking for updates: {e}")
 
-                    if update_info:
-                        update_state["update_available"] = True
-                        update_state["latest_version"] = update_info.version
-                        update_state["update_info"] = update_info
-                        update_state["last_check_time"] = datetime.now()
-                        print(f"Framo Bridge: Update available - v{update_info.tag_name}")
-                    else:
-                        update_state["update_available"] = False
-                        update_state["latest_version"] = current_version
-                        update_state["last_check_time"] = datetime.now()
-                except Exception as e:
-                    print(f"Framo Bridge: Error auto-checking for updates: {e}")
-
-            # Run in background thread
-            thread = threading.Thread(target=auto_check)
-            thread.daemon = True
-            thread.start()
+        # Run in background thread
+        thread = threading.Thread(target=auto_check)
+        thread.daemon = True
+        thread.start()
 
     except Exception as e:
         print(f"Framo Bridge: Error during startup update check: {e}")

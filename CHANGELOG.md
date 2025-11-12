@@ -5,6 +5,35 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2025-01-11
+
+### Added - Update System
+- **Update notification in main panel** - Update alerts now appear in the main Framo Bridge sidebar
+  - Prominent update notification box at top of panel
+  - Shows update version and install button
+  - Real-time download and installation progress
+  - Success message with restart instructions
+- **Automatic update checks** - Updates are checked automatically on every Blender startup
+  - No configuration needed - always enabled
+  - Runs in background (non-blocking)
+  - Silent operation with clear notifications when updates are found
+
+### Changed - Update System
+- **Simplified Preferences** - Removed "Automatically check for updates" option
+  - Update checks are now always enabled by default
+  - Cleaner Preferences UI with just manual check button
+  - Status display shows checking/available/up-to-date states
+- **Enhanced restart messaging** - Clear instructions after update installation
+  - Prominent success message in main panel and Preferences
+  - Shows restart requirement with alternative option (disable/re-enable addon)
+  - Formatted console messages for better visibility
+
+### Fixed - Update System
+- **Installation flow** - Improved update installation process
+  - Better error handling and user feedback
+  - Clear progress indicators during download and installation
+  - Success confirmation with restart instructions
+
 ## [0.2.7] - 2025-01-11
 
 ### Testing
