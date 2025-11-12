@@ -5,6 +5,15 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2025-01-11
+
+### Fixed
+- **Instance export bug** - Fixed issue where collection instances were not exported when selected together with mesh objects
+  - When decimation or UV unwrapping was enabled, only mesh objects were being selected for export
+  - Non-mesh objects (like collection instances) were deselected during temp copy creation and never re-selected
+  - Now properly preserves and includes all non-mesh objects in the export selection
+  - Fix ensures both mesh objects and instances are exported correctly when selected together
+
 ## [0.2.11] - 2025-01-11
 
 ### Changed - UI and Defaults

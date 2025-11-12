@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 11),
+    "version": (0, 2, 12),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -714,6 +714,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             # Process selected objects (we already checked selection exists)
             objects_to_process = context.selected_objects
             mesh_objects = [obj for obj in objects_to_process if obj.type == 'MESH']
+            non_mesh_objects = [obj for obj in objects_to_process if obj.type != 'MESH']
             
             # Create temporary copies if decimation or UV unwrapping is enabled
             if (settings.enable_decimation or settings.enable_auto_uv) and mesh_objects:
@@ -736,9 +737,16 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     # Select the temp object for export
                     temp_obj.select_set(True)
                 
-                # Set active object to first temp object if any exist
+                # Also select non-mesh objects (like collection instances) for export
+                for obj in non_mesh_objects:
+                    if obj.name in bpy.data.objects:
+                        obj.select_set(True)
+                
+                # Set active object to first temp object if any exist, otherwise first non-mesh object
                 if temp_objects:
                     context.view_layer.objects.active = temp_objects[0]
+                elif non_mesh_objects:
+                    context.view_layer.objects.active = non_mesh_objects[0]
             
             # Perform auto UV unwrapping if enabled (on temp copies or originals)
             if settings.enable_auto_uv:
