@@ -5,6 +5,25 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2025-01-11
+
+### Added - Update System
+- **Auto-installation** - Updates are now automatically downloaded and installed when detected
+  - Automatic download and installation on update detection
+  - Falls back to manual installation if auto-installation fails
+  - Seamless update experience
+- **"Install Update Now" button** - Manual installation option in Preferences
+  - Shows download progress (percentage)
+  - Shows installation status
+  - Available when update is detected
+  - Button disabled during download/install process
+
+### Changed - Update System
+- **Enhanced update flow** - Improved user experience
+  - Automatic installation eliminates need for manual steps
+  - Clear status indicators during download and installation
+  - Better error handling with fallback to manual installation
+
 ## [0.2.5] - 2025-01-11
 
 ### Testing

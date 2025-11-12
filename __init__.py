@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 5),
+    "version": (0, 2, 6),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -101,6 +101,7 @@ update_state = {
     "latest_version": None,
     "update_info": None,
     "downloading": False,
+    "installing": False,
     "download_progress": 0.0,
     "download_error": None,
     "pending_restart": False,
@@ -151,6 +152,18 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
                 if latest:
                     version_str = f"{latest[0]}.{latest[1]}.{latest[2]}"
                     row.label(text=f"Update available: v{version_str}", icon='IMPORT')
+                    # Add install button
+                    row = box.row()
+                    row.scale_y = 1.5
+                    if update_state.get("downloading"):
+                        row.enabled = False
+                        progress = update_state.get("download_progress", 0.0)
+                        row.label(text=f"Downloading... {int(progress * 100)}%", icon='TIME')
+                    elif update_state.get("installing"):
+                        row.enabled = False
+                        row.label(text="Installing update...", icon='TIME')
+                    else:
+                        op = row.operator("framo.install_update", text="Install Update Now", icon='IMPORT')
             else:
                 current = bl_info["version"]
                 version_str = f"{current[0]}.{current[1]}.{current[2]}"
@@ -2236,6 +2249,35 @@ class FRAMO_OT_check_for_updates(bpy.types.Operator):
                     update_state["last_check_time"] = datetime.now()
                     update_state["download_error"] = None
                     print(f"Framo Bridge: Update available - v{update_info.tag_name}")
+                    
+                    # Auto-installation: Automatically download and install the update
+                    print("Framo Bridge: Auto-installing update...")
+                    try:
+                        downloader = updater.UpdateDownloader(update_info)
+                        
+                        # Download
+                        zip_path = downloader.download()
+                        if zip_path and downloader.validate_zip(zip_path):
+                            extracted_path = downloader.extract_update(zip_path)
+                            if extracted_path:
+                                # Save and install
+                                updater.UpdateInstaller.save_pending_update(extracted_path, update_info.version)
+                                success = updater.UpdateInstaller.install_pending_update()
+                                if success:
+                                    print("Framo Bridge: Update auto-installed successfully!")
+                                    update_state["update_available"] = False
+                                    print("Framo Bridge: Please restart Blender or reload the addon to use the new version.")
+                                else:
+                                    print("Framo Bridge: Auto-installation failed, you can install manually")
+                            else:
+                                print("Framo Bridge: Failed to extract update, you can install manually")
+                        else:
+                            print("Framo Bridge: Failed to download/validate update, you can install manually")
+                    except Exception as e:
+                        print(f"Framo Bridge: Auto-installation error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        print("Framo Bridge: You can install the update manually using the button")
                 else:
                     update_state["update_available"] = False
                     update_state["latest_version"] = current_version
@@ -2361,6 +2403,133 @@ class FRAMO_OT_download_update(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FRAMO_OT_install_update(bpy.types.Operator):
+    """Download and install Framo Bridge update immediately"""
+    bl_idname = "framo.install_update"
+    bl_label = "Install Update"
+    bl_description = "Download and install the latest version of Framo Bridge immediately"
+
+    def execute(self, context):
+        global update_state
+
+        if not UPDATER_AVAILABLE:
+            self.report({'ERROR'}, "Updater module not available")
+            return {'CANCELLED'}
+
+        if not update_state.get("update_info"):
+            self.report({'ERROR'}, "No update information available")
+            return {'CANCELLED'}
+
+        update_state["downloading"] = True
+        update_state["installing"] = False
+        update_state["download_progress"] = 0.0
+        update_state["download_error"] = None
+
+        # Force UI update
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                area.tag_redraw()
+
+        # Download and install in background thread
+        def download_and_install():
+            global update_state
+
+            try:
+                update_info = update_state["update_info"]
+                downloader = updater.UpdateDownloader(update_info)
+
+                # Progress callback
+                def on_progress(progress):
+                    update_state["download_progress"] = progress
+                    try:
+                        for window in bpy.context.window_manager.windows:
+                            for area in window.screen.areas:
+                                if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                                    area.tag_redraw()
+                    except (AttributeError, RuntimeError):
+                        pass
+
+                print("Framo Bridge: Downloading update...")
+                # Download
+                zip_path = downloader.download(progress_callback=on_progress)
+
+                if not zip_path:
+                    update_state["download_error"] = downloader.download_error or "Download failed"
+                    return
+
+                print("Framo Bridge: Validating update...")
+                # Validate
+                if not downloader.validate_zip(zip_path):
+                    update_state["download_error"] = "Invalid zip file"
+                    return
+
+                print("Framo Bridge: Extracting update...")
+                # Extract
+                extracted_path = downloader.extract_update(zip_path)
+
+                if not extracted_path:
+                    update_state["download_error"] = "Failed to extract update"
+                    return
+
+                print("Framo Bridge: Installing update...")
+                update_state["downloading"] = False
+                update_state["installing"] = True
+                
+                # Force UI update
+                try:
+                    for window in bpy.context.window_manager.windows:
+                        for area in window.screen.areas:
+                            if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                                area.tag_redraw()
+                except (AttributeError, RuntimeError):
+                    pass
+
+                # Install immediately (not pending)
+                # Save as pending first, then install
+                updater.UpdateInstaller.save_pending_update(extracted_path, update_info.version)
+                
+                # Install the update
+                success = updater.UpdateInstaller.install_pending_update()
+
+                if success:
+                    print("Framo Bridge: Update installed successfully!")
+                    update_state["installing"] = False
+                    update_state["download_error"] = None
+                    update_state["update_available"] = False
+                    print("Framo Bridge: Update complete! Please restart Blender or reload the addon to use the new version.")
+                else:
+                    update_state["download_error"] = "Failed to install update"
+                    update_state["installing"] = False
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Framo Bridge: Error installing update: {error_msg}")
+                import traceback
+                traceback.print_exc()
+                update_state["download_error"] = error_msg
+                update_state["downloading"] = False
+                update_state["installing"] = False
+
+            finally:
+                update_state["downloading"] = False
+                if not update_state.get("installing"):
+                    # Force UI redraw
+                    try:
+                        for window in bpy.context.window_manager.windows:
+                            for area in window.screen.areas:
+                                if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                                    area.tag_redraw()
+                    except (AttributeError, RuntimeError):
+                        pass
+
+        thread = threading.Thread(target=download_and_install)
+        thread.daemon = True
+        thread.start()
+
+        self.report({'INFO'}, "Downloading and installing update...")
+        return {'FINISHED'}
+
+
 class FRAMO_OT_view_changelog(bpy.types.Operator):
     """View changelog for the latest release"""
     bl_idname = "framo.view_changelog"
@@ -2449,7 +2618,11 @@ classes = [
     FRAMO_OT_toggle_subdiv_exclusion,
     FRAMO_OT_add_individual_subdiv_override,
     FRAMO_OT_remove_individual_subdiv_override,
-    FRAMO_PT_export_panel
+    FRAMO_PT_export_panel,
+    FRAMO_OT_check_for_updates,
+    FRAMO_OT_install_update,
+    FRAMO_OT_download_update,
+    FRAMO_OT_view_changelog
 ]
 
 # Add dependency operator if available
