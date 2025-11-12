@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 10),
+    "version": (0, 2, 11),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -264,7 +264,7 @@ class FramoExportSettings(PropertyGroup):
     enable_decimation: BoolProperty(
         name="Enable Decimation",
         description="Reduce polygon count before export using decimate modifier",
-        default=True
+        default=False
     )
     
     decimate_ratio: FloatProperty(
@@ -322,7 +322,7 @@ class FramoExportSettings(PropertyGroup):
     subdiv_override_level: IntProperty(
         name="Subdivision Level",
         description="Subdivision level to use during export (0 = no subdivision, higher = more detail)",
-        default=3,
+        default=2,
         min=0,
         max=4
     )
@@ -1250,7 +1250,7 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         # Compression preset - in its own box
         compression_box = main_box.box()
         row = compression_box.row()
-        row.label(text="Compression", icon='MODIFIER')
+        row.label(text="GLB Compression", icon='MODIFIER')
         row.prop(settings, "compression_preset", text="")
         
         # Show custom compression settings if Custom is selected
@@ -1720,12 +1720,12 @@ class FRAMO_OT_reset_export_settings(bpy.types.Operator):
         settings.enable_auto_uv = True
         
         # Reset decimation settings
-        settings.enable_decimation = True
+        settings.enable_decimation = False
         settings.decimate_ratio = 0.1
         
         # Reset subdivision override settings
         settings.enable_subdiv_override = True
-        settings.subdiv_override_level = 3
+        settings.subdiv_override_level = 2
         
         self.report({'INFO'}, "Export settings reset to defaults")
         return {'FINISHED'}

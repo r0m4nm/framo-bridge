@@ -5,6 +5,13 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2025-01-11
+
+### Changed - UI and Defaults
+- **Renamed "Compression" to "GLB Compression"** - More descriptive label for compression settings
+- **Decimation disabled by default** - Decimation is now toggled off by default for cleaner exports
+- **Subdivision override default set to 2** - Changed default subdivision override level from 3 to 2
+
 ## [0.2.10] - 2025-01-11
 
 ### Changed - Update System UI
