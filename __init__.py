@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 3),
+    "version": (0, 2, 4),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -119,6 +119,8 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
     )
 
     def draw(self, context):
+        global update_state
+        
         layout = self.layout
 
         box = layout.box()
@@ -128,7 +130,31 @@ class FramoBridgePreferences(bpy.types.AddonPreferences):
         row.prop(self, "auto_check_updates")
 
         row = box.row()
-        row.operator("framo.check_for_updates", text="Check for Updates Now", icon='FILE_REFRESH')
+        op = row.operator("framo.check_for_updates", text="Check for Updates Now", icon='FILE_REFRESH')
+        
+        # Show update check status
+        if update_state.get("checking"):
+            row = box.row()
+            row.label(text="Checking for updates...", icon='TIME')
+        elif update_state.get("download_error"):
+            row = box.row()
+            row.alert = True
+            error_msg = update_state["download_error"]
+            # Truncate long error messages
+            if len(error_msg) > 60:
+                error_msg = error_msg[:57] + "..."
+            row.label(text=f"Error: {error_msg}", icon='ERROR')
+        elif update_state.get("last_check_time"):
+            row = box.row()
+            if update_state.get("update_available"):
+                latest = update_state.get("latest_version")
+                if latest:
+                    version_str = f"{latest[0]}.{latest[1]}.{latest[2]}"
+                    row.label(text=f"Update available: v{version_str}", icon='IMPORT')
+            else:
+                current = bl_info["version"]
+                version_str = f"{current[0]}.{current[1]}.{current[2]}"
+                row.label(text=f"Up to date (v{version_str})", icon='CHECKMARK')
 
 
 class MaterialExpandedState(PropertyGroup):
@@ -2199,6 +2225,7 @@ class FRAMO_OT_check_for_updates(bpy.types.Operator):
             global update_state
 
             try:
+                print("Framo Bridge: Checking for updates...")
                 current_version = bl_info["version"]
                 update_info = updater.GitHubReleaseChecker.check_for_updates(current_version)
 
@@ -2207,29 +2234,41 @@ class FRAMO_OT_check_for_updates(bpy.types.Operator):
                     update_state["latest_version"] = update_info.version
                     update_state["update_info"] = update_info
                     update_state["last_check_time"] = datetime.now()
+                    update_state["download_error"] = None
+                    print(f"Framo Bridge: Update available - v{update_info.tag_name}")
                 else:
                     update_state["update_available"] = False
                     update_state["latest_version"] = current_version
                     update_state["last_check_time"] = datetime.now()
+                    update_state["download_error"] = None
+                    print("Framo Bridge: No updates available - you're on the latest version")
 
             except Exception as e:
-                print(f"Error checking for updates: {e}")
-                update_state["download_error"] = str(e)
+                error_msg = str(e)
+                print(f"Framo Bridge: Error checking for updates: {error_msg}")
+                import traceback
+                traceback.print_exc()
+                update_state["download_error"] = error_msg
+                update_state["update_available"] = False
 
             finally:
                 update_state["checking"] = False
 
-                # Force UI redraw
-                for window in bpy.context.window_manager.windows:
-                    for area in window.screen.areas:
-                        if area.type == 'VIEW_3D':
-                            area.tag_redraw()
+                # Force UI redraw - use safe context access
+                try:
+                    for window in bpy.context.window_manager.windows:
+                        for area in window.screen.areas:
+                            if area.type == 'VIEW_3D' or area.type == 'PREFERENCES':
+                                area.tag_redraw()
+                except (AttributeError, RuntimeError):
+                    # Context not available - that's okay, UI will update on next refresh
+                    pass
 
         thread = threading.Thread(target=check_updates)
         thread.daemon = True
         thread.start()
 
-        self.report({'INFO'}, "Checking for updates...")
+        self.report({'INFO'}, "Checking for updates... (check console for details)")
         return {'FINISHED'}
 
 
@@ -2497,8 +2536,19 @@ def check_pending_update_on_startup(dummy):
             return  # Don't check for new updates if we just installed one
 
         # Auto-check for updates if enabled in preferences
-        prefs = bpy.context.preferences.addons.get(__name__)
-        if prefs and prefs.preferences.auto_check_updates:
+        # Use try-except since bpy.context might not be available during startup (especially on macOS)
+        auto_check_enabled = True  # Default to True
+        try:
+            if hasattr(bpy.context, 'preferences'):
+                prefs = bpy.context.preferences.addons.get(__name__)
+                if prefs and hasattr(prefs, 'preferences'):
+                    auto_check_enabled = prefs.preferences.auto_check_updates
+        except (AttributeError, RuntimeError):
+            # bpy.context not available - use default (check for updates)
+            # This is common on macOS during startup
+            pass
+
+        if auto_check_enabled:
             # Check in background (non-blocking)
             def auto_check():
                 global update_state

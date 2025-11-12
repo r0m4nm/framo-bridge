@@ -7,6 +7,7 @@ import urllib.request
 import urllib.error
 import json
 import os
+import socket
 import tempfile
 import zipfile
 import shutil
@@ -81,45 +82,78 @@ class GitHubReleaseChecker:
 
         Returns:
             UpdateInfo if newer version available, None otherwise
+            
+        Raises:
+            Exception: If there's a network or API error (for better error reporting)
         """
         try:
-            # Create request with timeout
+            print(f"Framo Bridge: Fetching latest release from GitHub...")
+            print(f"Framo Bridge: API URL: {GITHUB_API_URL}")
+            
+            # Create request with timeout and user agent (some servers require this)
             req = urllib.request.Request(
                 GITHUB_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json'}
+                headers={
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'Framo-Bridge-Addon/1.0'
+                }
             )
 
+            print(f"Framo Bridge: Opening connection (timeout: {timeout}s)...")
             with urllib.request.urlopen(req, timeout=timeout) as response:
+                print(f"Framo Bridge: Response status: {response.status}")
+                
                 if response.status != 200:
-                    print(f"GitHub API returned status {response.status}")
-                    return None
+                    error_msg = f"GitHub API returned status {response.status}"
+                    print(f"Framo Bridge: {error_msg}")
+                    raise Exception(error_msg)
 
-                data = json.loads(response.read().decode('utf-8'))
+                print("Framo Bridge: Reading response data...")
+                response_data = response.read()
+                print(f"Framo Bridge: Received {len(response_data)} bytes")
+                
+                data = json.loads(response_data.decode('utf-8'))
+                print(f"Framo Bridge: Successfully parsed JSON response")
 
                 # Parse release information
                 tag_name = data.get('tag_name', '')
+                print(f"Framo Bridge: Latest release tag: {tag_name}")
+                
                 latest_version = GitHubReleaseChecker.parse_version(tag_name)
 
                 if not latest_version:
-                    print(f"Could not parse version from tag: {tag_name}")
-                    return None
+                    error_msg = f"Could not parse version from tag: {tag_name}"
+                    print(f"Framo Bridge: {error_msg}")
+                    raise Exception(error_msg)
+
+                print(f"Framo Bridge: Parsed version: {latest_version}")
+                print(f"Framo Bridge: Current version: {current_version}")
 
                 # Check if update is available
                 if not GitHubReleaseChecker.is_newer_version(current_version, latest_version):
+                    print("Framo Bridge: No newer version available")
                     return None
+
+                print(f"Framo Bridge: Newer version found: {latest_version}")
 
                 # Find the .zip asset
                 assets = data.get('assets', [])
+                print(f"Framo Bridge: Found {len(assets)} assets in release")
+                
                 zip_asset = None
 
                 for asset in assets:
-                    if asset.get('name', '').endswith('.zip'):
+                    asset_name = asset.get('name', '')
+                    print(f"Framo Bridge: Checking asset: {asset_name}")
+                    if asset_name.endswith('.zip'):
                         zip_asset = asset
+                        print(f"Framo Bridge: Found zip asset: {asset_name}")
                         break
 
                 if not zip_asset:
-                    print(f"No .zip asset found in release {tag_name}")
-                    return None
+                    error_msg = f"No .zip asset found in release {tag_name}"
+                    print(f"Framo Bridge: {error_msg}")
+                    raise Exception(error_msg)
 
                 # Create UpdateInfo object
                 update_info = UpdateInfo(
@@ -131,20 +165,47 @@ class GitHubReleaseChecker:
                 )
                 update_info.size_bytes = zip_asset.get('size', 0)
 
+                print(f"Framo Bridge: Update info created successfully")
+                print(f"Framo Bridge: Download URL: {update_info.download_url}")
+                print(f"Framo Bridge: Size: {update_info.size_bytes} bytes")
+
                 return update_info
 
         except urllib.error.HTTPError as e:
-            print(f"HTTP Error checking for updates: {e.code} {e.reason}")
-            return None
+            error_msg = f"HTTP Error {e.code}: {e.reason}"
+            print(f"Framo Bridge: {error_msg}")
+            # Try to read error response body for more details
+            try:
+                error_body = e.read().decode('utf-8')
+                print(f"Framo Bridge: Error response body: {error_body[:200]}")
+            except:
+                pass
+            raise Exception(error_msg)
+            
         except urllib.error.URLError as e:
-            print(f"URL Error checking for updates: {e.reason}")
-            return None
+            error_reason = str(e.reason) if e.reason else str(e)
+            error_msg = f"Network error: {error_reason}"
+            print(f"Framo Bridge: {error_msg}")
+            print(f"Framo Bridge: This might be a network connectivity issue or firewall blocking the connection")
+            print(f"Framo Bridge: On macOS, check System Preferences > Security & Privacy > Firewall")
+            raise Exception(error_msg)
+            
+        except socket.timeout:
+            error_msg = f"Connection timeout after {timeout} seconds"
+            print(f"Framo Bridge: {error_msg}")
+            raise Exception(error_msg)
+            
         except json.JSONDecodeError as e:
-            print(f"Error parsing GitHub API response: {e}")
-            return None
+            error_msg = f"Invalid JSON response from GitHub API: {e}"
+            print(f"Framo Bridge: {error_msg}")
+            raise Exception(error_msg)
+            
         except Exception as e:
-            print(f"Unexpected error checking for updates: {e}")
-            return None
+            error_msg = f"Unexpected error: {str(e)}"
+            print(f"Framo Bridge: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            raise Exception(error_msg)
 
 
 class UpdateDownloader:
@@ -349,42 +410,112 @@ class UpdateInstaller:
         """
         Get the actual addon directory path.
         Works across all platforms (Windows, macOS, Linux).
+        Works even when bpy.context is not available (e.g., during startup).
 
         Returns:
             Path to the addon directory, or None if not found
         """
         try:
             import bpy
+            import sys
 
-            # Try to get the addon directory from the addon itself
-            # This works by finding the framo-bridge addon in the loaded addons
-            addon_prefs = bpy.context.preferences.addons.get('framo-bridge')
-
-            if addon_prefs and hasattr(addon_prefs, 'module'):
-                # Get the module's __file__ attribute
-                module = addon_prefs.module
-                if hasattr(module, '__file__'):
-                    # Get the directory containing __init__.py
-                    addon_dir = Path(module.__file__).parent
+            # Method 1: Use the current module's location (most reliable)
+            # Since updater.py is in the addon folder, we can use its location
+            current_file = Path(__file__).resolve()
+            if current_file.name == 'updater.py':
+                addon_dir = current_file.parent
+                if addon_dir.exists() and (addon_dir / '__init__.py').exists():
                     return addon_dir
 
-            # Fallback: try standard locations
-            scripts_dir = Path(bpy.utils.user_resource('SCRIPTS'))
-            addon_dir = scripts_dir / "addons" / "framo-bridge"
+            # Method 1b: Try to get from sys.modules (works without context)
+            # Try different possible module name formats
+            possible_module_names = ['framo-bridge', 'framo_bridge']
+            for module_name in possible_module_names:
+                if module_name in sys.modules:
+                    module = sys.modules[module_name]
+                    if hasattr(module, '__file__') and module.__file__:
+                        try:
+                            file_path = Path(module.__file__).resolve()
+                            # Check if this looks like our addon's __init__.py
+                            if file_path.name == '__init__.py' and file_path.parent.name == 'framo-bridge':
+                                addon_dir = file_path.parent
+                                if addon_dir.exists() and (addon_dir / '__init__.py').exists():
+                                    return addon_dir
+                        except (OSError, ValueError):
+                            pass
+            
+            # Method 1c: Search through all loaded modules for our addon
+            for module_name, module in sys.modules.items():
+                if hasattr(module, '__file__') and module.__file__:
+                    try:
+                        file_path = Path(module.__file__).resolve()
+                        # Check if this is our addon's __init__.py
+                        if file_path.name == '__init__.py' and 'framo-bridge' in str(file_path):
+                            addon_dir = file_path.parent
+                            if addon_dir.exists() and (addon_dir / '__init__.py').exists():
+                                # Verify it's actually our addon by checking for a known file
+                                if (addon_dir / 'updater.py').exists():
+                                    return addon_dir
+                    except (OSError, ValueError, AttributeError):
+                        pass
 
-            if addon_dir.exists():
+            # Method 2: Try to get from bpy.context if available
+            try:
+                if hasattr(bpy.context, 'preferences'):
+                    addon_prefs = bpy.context.preferences.addons.get('framo-bridge')
+                    if addon_prefs and hasattr(addon_prefs, 'module'):
+                        module = addon_prefs.module
+                        if hasattr(module, '__file__') and module.__file__:
+                            addon_dir = Path(module.__file__).parent
+                            if addon_dir.exists():
+                                return addon_dir
+            except (AttributeError, RuntimeError):
+                # bpy.context not available (common on macOS during startup)
+                pass
+
+            # Method 3: Try bpy.context.preferences if available (fallback)
+            # Note: This may not work during startup on macOS
+            try:
+                if hasattr(bpy, 'context') and hasattr(bpy.context, 'preferences'):
+                    prefs = bpy.context.preferences
+                    addon_prefs = prefs.addons.get('framo-bridge')
+                    if addon_prefs and hasattr(addon_prefs, 'module'):
+                        module = addon_prefs.module
+                        if hasattr(module, '__file__') and module.__file__:
+                            addon_dir = Path(module.__file__).parent
+                            if addon_dir.exists():
+                                return addon_dir
+            except (AttributeError, RuntimeError):
+                # bpy.context not available - this is expected on macOS during startup
+                pass
+
+            # Method 4: Fallback to standard locations
+            scripts_dir = Path(bpy.utils.user_resource('SCRIPTS'))
+            
+            # Check standard addons directory
+            addon_dir = scripts_dir / "addons" / "framo-bridge"
+            if addon_dir.exists() and (addon_dir / '__init__.py').exists():
                 return addon_dir
 
-            # Check modules directory (another possible location)
+            # Check contrib directory
             modules_dir = scripts_dir / "addons_contrib" / "framo-bridge"
-            if modules_dir.exists():
+            if modules_dir.exists() and (modules_dir / '__init__.py').exists():
                 return modules_dir
 
-            print("Could not locate addon directory")
+            # Check system addons (macOS sometimes uses different locations)
+            if hasattr(bpy.utils, 'script_path_user'):
+                user_scripts = Path(bpy.utils.script_path_user())
+                user_addon_dir = user_scripts / "addons" / "framo-bridge"
+                if user_addon_dir.exists() and (user_addon_dir / '__init__.py').exists():
+                    return user_addon_dir
+
+            print("Framo Bridge: Could not locate addon directory")
             return None
 
         except Exception as e:
-            print(f"Error getting addon directory: {e}")
+            print(f"Framo Bridge: Error getting addon directory: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     @staticmethod
@@ -401,21 +532,29 @@ class UpdateInstaller:
 
             metadata = UpdateInstaller.get_pending_update()
             if not metadata:
+                print("Framo Bridge: No pending update metadata found")
                 return False
 
             extracted_path = Path(metadata['extracted_path'])
+            print(f"Framo Bridge: Installing update from {extracted_path}")
 
             if not extracted_path.exists():
-                print(f"Pending update path not found: {extracted_path}")
+                print(f"Framo Bridge: Pending update path not found: {extracted_path}")
                 UpdateInstaller.clear_pending_update()
                 return False
 
             # Get addon directory (platform-independent)
             addon_dir = UpdateInstaller.get_addon_directory()
 
-            if not addon_dir or not addon_dir.exists():
-                print(f"Addon directory not found: {addon_dir}")
+            if not addon_dir:
+                print("Framo Bridge: Could not determine addon directory")
                 return False
+
+            if not addon_dir.exists():
+                print(f"Framo Bridge: Addon directory does not exist: {addon_dir}")
+                return False
+
+            print(f"Framo Bridge: Installing to addon directory: {addon_dir}")
 
             # Replace files
             # Delete old addon files (except user data if any)
@@ -430,7 +569,11 @@ class UpdateInstaller:
                 if item.is_file():
                     shutil.copy2(item, addon_dir / item.name)
                 elif item.is_dir() and item.name != '__pycache__':
-                    shutil.copytree(item, addon_dir / item.name)
+                    dest_path = addon_dir / item.name
+                    # Remove existing directory if it exists
+                    if dest_path.exists():
+                        shutil.rmtree(dest_path)
+                    shutil.copytree(item, dest_path)
 
             print(f"Successfully installed update to {addon_dir}")
 

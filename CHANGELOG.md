@@ -5,6 +5,28 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2025-01-11
+
+### Fixed - Auto-Update System
+- **macOS autoupdate fixes** - Comprehensive fixes for update system on macOS
+  - Fixed addon directory detection using `__file__` method (works without bpy.context)
+  - Added multiple fallback methods for finding addon directory
+  - Fixed context access issues in background threads
+  - Improved error handling and logging throughout update process
+- **"Check for Updates Now" button** - Now works correctly on all platforms
+  - Added user-visible status display in Preferences UI
+  - Shows checking status, update availability, and error messages
+  - Enhanced error reporting with detailed console logging
+  - Better network error handling with macOS-specific guidance
+  - Added User-Agent header for GitHub API requests
+  - Improved exception handling and error propagation
+
+### Changed - Update System
+- **Enhanced debugging** - Detailed logging at each step of update process
+  - Console logs show API URL, connection status, response details
+  - Full traceback on errors for easier troubleshooting
+  - Clear error messages for network, HTTP, and parsing issues
+
 ## [0.2.3] - 2025-01-11
 
 ### Summary
