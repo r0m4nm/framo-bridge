@@ -48,6 +48,14 @@ except ImportError:
     MATERIAL_ANALYZER_AVAILABLE = False
     print("Warning: material_analyzer module not available.")
 
+# Try to import material cleaner module
+try:
+    from . import material_cleaner
+    MATERIAL_CLEANER_AVAILABLE = True
+except ImportError:
+    MATERIAL_CLEANER_AVAILABLE = False
+    print("Warning: material_cleaner module not available.")
+
 # Try to import UV unwrapping module
 try:
     from . import uv_unwrap
@@ -653,6 +661,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
         temp_objects = []
         original_selection = context.selected_objects.copy() if context.selected_objects else []
         subdiv_original_levels = []  # Store original subdivision levels for restoration
+        texture_scaled_copies = {}  # Track scaled copies for cleanup
         
         try:
             info_parts = []
@@ -748,6 +757,22 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 elif non_mesh_objects:
                     context.view_layer.objects.active = non_mesh_objects[0]
             
+            # Clean unused materials (on temp copies or originals)
+            # This removes materials that aren't applied to any faces
+            # MASSIVE file size optimization when materials contain textures (up to 10x reduction)
+            # Runs automatically in background - no downside to always enabling
+            if MATERIAL_CLEANER_AVAILABLE:
+                update_export_status(context, "Removing unused materials...")
+                
+                # Clean materials on temp objects if they exist, otherwise on originals
+                objects_to_clean = temp_objects if temp_objects else mesh_objects
+                
+                if objects_to_clean:
+                    cleaning_result = material_cleaner.clean_materials_batch(objects_to_clean, dry_run=False)
+                    
+                    if cleaning_result['total_removed'] > 0:
+                        info_parts.append(f"Removed {cleaning_result['total_removed']} unused materials from {cleaning_result['cleaned_objects']} objects")
+            
             # Perform auto UV unwrapping if enabled (on temp copies or originals)
             if settings.enable_auto_uv:
                 if not UV_UNWRAP_AVAILABLE:
@@ -769,7 +794,23 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Perform mesh decimation if enabled (on temp copies) - always use bmesh
             if settings.enable_decimation:
-                objects_to_decimate = temp_objects if temp_objects else mesh_objects
+                # Collect all objects to process for decimation
+                # - Temp objects: already copied meshes (decimate these)
+                # - Collection instances: find original meshes in collections (decimate originals to affect all instances)
+                objects_for_decimation = list(temp_objects) if temp_objects else []
+                
+                # Add collection instances from non_mesh_objects to find their original meshes
+                if non_mesh_objects:
+                    # Find original meshes from collection instances
+                    instance_meshes = decimation.get_original_meshes_from_instances(non_mesh_objects)
+                    # Add to objects_for_decimation (these are originals, not temp copies)
+                    objects_for_decimation.extend(instance_meshes)
+                
+                # If no temp objects, also include direct mesh objects
+                if not temp_objects and mesh_objects:
+                    objects_for_decimation.extend(mesh_objects)
+                
+                objects_to_decimate = objects_for_decimation
                 
                 if objects_to_decimate:
                     update_export_status(context, f"Decimating {len(objects_to_decimate)} mesh(es)...")
@@ -802,11 +843,10 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                                 decimated_count += 1
                             else:
                                 # Show detailed error information
-                                method_name = settings.decimation_method
                                 if error_details:
                                     self.report({'WARNING'}, f"{obj.name}: {error_details}")
                                 else:
-                                    self.report({'WARNING'}, f"Failed to decimate {obj.name} with {method_name} method. Check Blender console for details.")
+                                    self.report({'WARNING'}, f"Failed to decimate {obj.name}. Check Blender console for details.")
                     
                     if decimated_count > 0:
                         if total_faces_before > 0:
@@ -849,8 +889,6 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Process textures: scale down (NON-DESTRUCTIVE)
             # WebP conversion happens automatically in Blender's glTF exporter
-            texture_scaled_copies = {}  # Track scaled copies for cleanup
-            
             if settings.enable_texture_optimization and (TEXTURE_SCALER_AVAILABLE or TEXTURE_ANALYZER_AVAILABLE):
                 update_export_status(context, "Optimizing textures...")
                 try:

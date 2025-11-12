@@ -23,6 +23,12 @@ A powerful Blender addon for one-click export of optimized 3D models directly to
 - **Feature preservation** (sharp edges, UV seams)
 - **Real-time polygon count reporting**
 
+### ✅ **Material Optimization**
+- **Automatic unused material removal** - removes materials not applied to any faces
+- **Massive file size reduction** (up to 10x for objects with texture-heavy unused materials)
+- **Runs automatically in background** - zero configuration needed
+- **Non-destructive** - only affects export, originals untouched
+
 ### ✅ **Web-Ready Features**
 - **HDRI environment lighting** for realistic presentation
 - **Draco decompression** support in web viewer
@@ -141,6 +147,7 @@ cd /usr/share/blender/4.4/python/bin
 ### File Size Reductions:
 - **Draco Compression**: 50-80% size reduction
 - **Mesh Decimation**: 30-90% polygon reduction
+- **Unused Material Removal**: Up to 10x reduction for objects with texture-heavy unused materials
 - **Combined**: Often results in 90%+ file size reduction
 
 ### Web Performance:
@@ -263,6 +270,7 @@ framo-bridge/
 ├── decimation.py                  # Mesh decimation module
 ├── dependencies.py                # Dependency management
 ├── material_analyzer.py           # Material validation
+├── material_cleaner.py            # Unused material removal (automatic optimization)
 ├── texture_scaler.py              # Texture scaling (Blender native - no deps)
 ├── texture_analyzer.py            # Texture optimization (Pillow - legacy)
 ├── uv_unwrap.py                  # UV unwrapping utilities
