@@ -340,14 +340,21 @@ def get_all_texture_images(context: bpy.types.Context, excluded_materials: Optio
     # Get all materials from selected objects only
     materials = set()
     for obj in context.selected_objects:
-        # Only process mesh objects
-        if obj.type != 'MESH' or not obj.data:
-            continue
-
-        # Get materials from material slots of this selected object
-        for slot in obj.material_slots:
-            if slot.material and slot.material.name not in excluded_materials:
-                materials.add(slot.material)
+        # Process mesh objects
+        if obj.type == 'MESH' and obj.data:
+            # Get materials from material slots of this selected object
+            for slot in obj.material_slots:
+                if slot.material and slot.material.name not in excluded_materials:
+                    materials.add(slot.material)
+        
+        # Process collection instances (EMPTY objects that reference collections)
+        elif obj.type == 'EMPTY' and obj.instance_type == 'COLLECTION' and obj.instance_collection:
+            # Get materials from all mesh objects in the instanced collection
+            for coll_obj in obj.instance_collection.all_objects:
+                if coll_obj.type == 'MESH' and coll_obj.data:
+                    for slot in coll_obj.material_slots:
+                        if slot.material and slot.material.name not in excluded_materials:
+                            materials.add(slot.material)
 
     # Traverse material node trees to find image textures
     for material in materials:
@@ -380,14 +387,21 @@ def replace_image_in_materials(context: bpy.types.Context, old_image: bpy.types.
     # Get all materials from selected objects only
     materials = set()
     for obj in context.selected_objects:
-        # Only process mesh objects
-        if obj.type != 'MESH' or not obj.data:
-            continue
-
-        # Get materials from material slots of this selected object
-        for slot in obj.material_slots:
-            if slot.material:
-                materials.add(slot.material)
+        # Process mesh objects
+        if obj.type == 'MESH' and obj.data:
+            # Get materials from material slots of this selected object
+            for slot in obj.material_slots:
+                if slot.material:
+                    materials.add(slot.material)
+        
+        # Process collection instances (EMPTY objects that reference collections)
+        elif obj.type == 'EMPTY' and obj.instance_type == 'COLLECTION' and obj.instance_collection:
+            # Get materials from all mesh objects in the instanced collection
+            for coll_obj in obj.instance_collection.all_objects:
+                if coll_obj.type == 'MESH' and coll_obj.data:
+                    for slot in coll_obj.material_slots:
+                        if slot.material:
+                            materials.add(slot.material)
 
     # Replace image references in node trees
     for material in materials:
