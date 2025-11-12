@@ -5,6 +5,31 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-01-12
+
+### Added - Subdivision Control (New Feature)
+- **Individual subdivision overrides** - Advanced per-object subdivision control system
+  - Global override mode with single slider (applies to all objects)
+  - Individual override mode with per-object sliders (up to level 6)
+  - Checkbox toggles between global and individual control
+  - Smart logic: only reduces subdivision, never increases
+  - Prevents accidental over-subdivision during export
+- **Enhanced subdivision UI** - Professional collapsible interface
+  - Summary showing count of affected objects
+  - Expandable list with all objects and their settings
+  - Visual distinction between global and individual overrides
+  - Sliders auto-initialize with object's current subdivision level
+
+### Fixed
+- **Instance export compatibility** - Collection instances now export correctly with mesh objects
+- **Update system stability** - Improved cross-platform update installation
+
+### Changed
+- **Subdivision defaults** - Optimized default values for better workflow
+  - Global override default changed from 3 to 2
+  - Decimation disabled by default for cleaner exports
+  - Maximum global override reduced to 4 (individual can still reach 6)
+
 ## [0.2.12] - 2025-01-11
 
 ### Fixed

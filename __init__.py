@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 12),
+    "version": (0, 3, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -771,29 +771,71 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Create temporary copies if decimation, UV unwrapping, or material cleaning is enabled
             # Material cleaning needs temp copies to avoid modifying the original scene
-            if (settings.enable_decimation or settings.enable_auto_uv or MATERIAL_CLEANER_AVAILABLE) and mesh_objects:
-                update_export_status(context, f"Creating temporary copies of {len(mesh_objects)} object(s)...")
+            if (settings.enable_decimation or settings.enable_auto_uv or MATERIAL_CLEANER_AVAILABLE) and (mesh_objects or non_mesh_objects):
+                # Get meshes from collection instances too
+                instance_meshes = []
+                if non_mesh_objects:
+                    instance_meshes = decimation.get_original_meshes_from_instances(non_mesh_objects)
                 
-                # Deselect all first
-                bpy.ops.object.select_all(action='DESELECT')
+                total_meshes = len(mesh_objects) + len(instance_meshes)
                 
-                for obj in mesh_objects:
-                    # Create a temporary copy of the object
-                    temp_obj = obj.copy()
-                    temp_obj.data = obj.data.copy()  # Deep copy the mesh data
-                    temp_obj.name = f"TEMP_EXPORT_{obj.name}"
+                if total_meshes > 0:
+                    update_export_status(context, f"Creating temporary copies of {total_meshes} object(s)...")
                     
-                    # Link to scene
-                    context.collection.objects.link(temp_obj)
-                    temp_objects.append(temp_obj)
-                    original_to_temp[obj] = temp_obj
+                    # Deselect all first
+                    bpy.ops.object.select_all(action='DESELECT')
                     
-                    # Select the temp object for export
-                    temp_obj.select_set(True)
+                    # Create temp copies of direct mesh objects
+                    for obj in mesh_objects:
+                        # Create a temporary copy of the object
+                        temp_obj = obj.copy()
+                        temp_obj.data = obj.data.copy()  # Deep copy the mesh data
+                        temp_obj.name = f"TEMP_EXPORT_{obj.name}"
+                        
+                        # Link to scene
+                        context.collection.objects.link(temp_obj)
+                        temp_objects.append(temp_obj)
+                        original_to_temp[obj] = temp_obj
+                        
+                        # Select the temp object for export
+                        temp_obj.select_set(True)
+                    
+                    # Create temp copies of meshes from collection instances
+                    # Track which collection instances we've processed
+                    processed_instances = set()
+                    for obj in instance_meshes:
+                        # Only create temp copy if not already created
+                        if obj not in original_to_temp:
+                            # Create a temporary copy of the instance mesh
+                            temp_obj = obj.copy()
+                            temp_obj.data = obj.data.copy()  # Deep copy the mesh data
+                            temp_obj.name = f"TEMP_EXPORT_{obj.name}"
+                            
+                            # Link to scene
+                            context.collection.objects.link(temp_obj)
+                            temp_objects.append(temp_obj)
+                            original_to_temp[obj] = temp_obj
+                            
+                            # Select the temp object for export
+                            temp_obj.select_set(True)
+                            
+                            # Track which instance this came from
+                            for inst_obj in non_mesh_objects:
+                                if (inst_obj.type == 'EMPTY' and 
+                                    inst_obj.instance_type == 'COLLECTION' and 
+                                    inst_obj.instance_collection):
+                                    # Check if this mesh is in the instance's collection
+                                    if obj.name in [coll_obj.name for coll_obj in inst_obj.instance_collection.all_objects]:
+                                        processed_instances.add(inst_obj)
+                                        break
                 
-                # Also select non-mesh objects (like collection instances) for export
+                # Select non-mesh objects for export ONLY if we haven't created temp copies of their meshes
+                # If we've created temp copies, we export those instead of the instance itself
                 for obj in non_mesh_objects:
                     if obj.name in bpy.data.objects:
+                        # Skip collection instances if we've already created temp copies of their meshes
+                        if obj in processed_instances:
+                            continue
                         obj.select_set(True)
                 
                 # Set active object to first temp object if any exist, otherwise first non-mesh object
@@ -864,19 +906,12 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                         temp_to_original_name[temp_obj.name] = original_obj.name
                 
                 # Collect all objects to process for decimation
-                # - Temp objects: already copied meshes (decimate these)
-                # - Collection instances: find original meshes in collections (decimate originals to affect all instances)
+                # All temp copies are already in temp_objects list (includes direct meshes + instance meshes)
                 objects_for_decimation = list(temp_objects) if temp_objects else []
                 
-                # Add collection instances from non_mesh_objects to find their original meshes
-                if non_mesh_objects:
-                    # Find original meshes from collection instances
-                    instance_meshes = decimation.get_original_meshes_from_instances(non_mesh_objects)
-                    # Add to objects_for_decimation (these are originals, not temp copies)
-                    objects_for_decimation.extend(instance_meshes)
-                
-                # If no temp objects, also include direct mesh objects
-                if not temp_objects and mesh_objects:
+                # If no temp objects were created, include direct mesh objects
+                # (This shouldn't happen if decimation is enabled, but handle it just in case)
+                if not objects_for_decimation and mesh_objects:
                     objects_for_decimation.extend(mesh_objects)
                 
                 # Filter out excluded objects (check both temp and original names)

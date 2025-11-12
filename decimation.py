@@ -479,6 +479,35 @@ def get_decimation_info() -> dict:
     }
 
 
+def get_original_meshes_from_instances(objects: List) -> List:
+    """
+    Get original mesh objects from collection instances.
+    
+    When an EMPTY object is a collection instance, it references a collection
+    containing mesh objects. This function extracts those original mesh objects
+    so they can be processed (e.g., decimated).
+    
+    Args:
+        objects: List of objects (typically EMPTY objects with collection instances)
+    
+    Returns:
+        List of mesh objects found in the instanced collections
+    """
+    mesh_objects = []
+    
+    for obj in objects:
+        # Check if this is a collection instance
+        if obj.type == 'EMPTY' and obj.instance_type == 'COLLECTION' and obj.instance_collection:
+            # Get all mesh objects from the instanced collection
+            for coll_obj in obj.instance_collection.all_objects:
+                if coll_obj.type == 'MESH' and coll_obj.data:
+                    # Avoid duplicates
+                    if coll_obj not in mesh_objects:
+                        mesh_objects.append(coll_obj)
+    
+    return mesh_objects
+
+
 # Module metadata
 __all__ = [
     'decimate_object',
@@ -488,6 +517,7 @@ __all__ = [
     'diagnose_mesh_issues',
     'get_available_decimation_methods',
     'get_decimation_info',
+    'get_original_meshes_from_instances',
 ]
 
 # Print availability on import
