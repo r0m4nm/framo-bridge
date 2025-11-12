@@ -845,6 +845,12 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 individual_overrides = {item.object_name: item.override_ratio 
                                       for item in settings.decimate_individual_overrides}
                 
+                # Create reverse mapping: temp object -> original object name
+                temp_to_original_name = {}
+                if temp_objects and original_to_temp:
+                    for original_obj, temp_obj in original_to_temp.items():
+                        temp_to_original_name[temp_obj.name] = original_obj.name
+                
                 # Collect all objects to process for decimation
                 # - Temp objects: already copied meshes (decimate these)
                 # - Collection instances: find original meshes in collections (decimate originals to affect all instances)
@@ -861,9 +867,13 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 if not temp_objects and mesh_objects:
                     objects_for_decimation.extend(mesh_objects)
                 
-                # Filter out excluded objects
-                objects_to_decimate = [obj for obj in objects_for_decimation 
-                                      if obj.name not in excluded_objects]
+                # Filter out excluded objects (check both temp and original names)
+                objects_to_decimate = []
+                for obj in objects_for_decimation:
+                    # Get original name for lookup (temp objects have renamed names)
+                    original_name = temp_to_original_name.get(obj.name, obj.name)
+                    if original_name not in excluded_objects:
+                        objects_to_decimate.append(obj)
                 
                 if objects_to_decimate:
                     update_export_status(context, f"Decimating {len(objects_to_decimate)} mesh(es)...")
@@ -880,8 +890,11 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                             faces_before = len(obj.data.polygons)
                             total_faces_before += faces_before
                             
+                            # Get original name for lookup (temp objects have renamed names)
+                            original_name = temp_to_original_name.get(obj.name, obj.name)
+                            
                             # Get decimation ratio (individual override or global)
-                            decimate_ratio = individual_overrides.get(obj.name, settings.decimate_ratio)
+                            decimate_ratio = individual_overrides.get(original_name, settings.decimate_ratio)
                             
                             # Update status for this specific object
                             update_export_status(context, f"Decimating {obj.name} ({idx+1}/{len(meshes_list)})...")
