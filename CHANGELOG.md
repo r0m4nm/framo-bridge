@@ -5,6 +5,121 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2025-01-11
+
+### Summary
+Comprehensive update consolidating all texture optimization improvements, auto-update fixes, and enhanced mesh processing capabilities. This release completes the transition to dependency-free texture handling and improves cross-platform compatibility.
+
+### Added - Texture System
+- **Native texture scaling** (`texture_scaler.py`) - Zero dependencies required
+  - Uses Blender's built-in `image.scale()` function
+  - Automatic aspect ratio preservation
+  - Non-destructive workflow
+  - WebP format detection (Blender 3.0+)
+  - Smart fallback system to Pillow if needed
+- **Two-stage optimization pipeline**
+  - Stage 1: Pre-export scaling (texture_scaler.py)
+  - Stage 2: WebP compression (Blender's glTF exporter)
+- Export messages now show method used (Native/Pillow)
+
+### Added - Subdivision Control
+- **Subdivision override system** for export-time control
+  - Temporarily set subdivision levels during export
+  - Individual object override capabilities
+  - Exclude specific objects from subdivision changes
+  - Non-destructive (original modifiers restored after export)
+
+### Changed - Update System
+- **Silent auto-updates** - No more intrusive UI
+  - Removed "Update Now" button from panel
+  - Removed progress bars and notification messages
+  - Updates happen automatically in background on Blender startup
+  - Cleaner, less intrusive user experience
+
+### Fixed - Core Issues
+- **macOS auto-update support** - Now works on all platforms
+  - Platform-independent addon directory detection
+  - Dynamic path resolution using `addon_prefs.module.__file__`
+  - Multiple fallback locations checked
+  - No more hardcoded paths
+- **Non-manifold geometry handling** in decimation
+  - Aggressive merge-by-distance strategy
+  - Progressive distance attempts (0.001, 0.01, 0.1)
+  - Dissolve degenerate faces and edges
+  - Better error reporting and recovery
+
+### Removed
+- **Pillow dependency** (optional fallback only)
+  - All texture scaling now uses Blender native functions
+  - WebP conversion handled by glTF exporter
+  - No pip install required for core functionality
+- Manual update UI components
+  - Update notification box
+  - View Changes button
+  - Download progress indicators
+  - Error retry UI
+
+### Technical Details
+**New Files:**
+- `texture_scaler.py` - Native texture scaling module (600+ lines)
+  - `compress_image_native()` - Compression with optional scaling
+  - `scale_image_native()` - Pure scaling function
+  - `process_textures_native()` - Batch processing
+  - `is_webp_supported()` - Version detection
+  - `get_all_texture_images()` - Material traversal
+  - `replace_image_in_materials()` - Reference updates
+
+**Updated Files:**
+- `__init__.py` - Core addon integration
+  - Smart texture scaler detection and fallback
+  - Subdivision override UI and operators
+  - Removed update notification UI (lines 1014-1060)
+  - Added SubdivExcludeObject and SubdivIndividualOverride property groups
+- `updater.py` - Cross-platform update support
+  - New `get_addon_directory()` method for dynamic path detection
+  - Platform-independent installation
+  - Multiple fallback location checks
+- `texture_analyzer.py` - Legacy Pillow support
+  - Added missing `is_webp_available()` function
+  - Retained as fallback option
+- `decimation.py` - Enhanced mesh processing
+  - Improved non-manifold geometry detection
+  - Progressive merge strategies
+  - Better error handling
+- `build_zip.py` - Distribution configuration
+  - Added `texture_scaler.py` to include list
+  - Updated comments for clarity
+- `material_analyzer.py` - Collection instance support
+  - Added support for analyzing materials in collection instances
+- `README.md` - Complete documentation rewrite
+  - Two-stage optimization pipeline explained
+  - Native vs Pillow comparison
+  - Installation simplified (no dependencies section)
+
+**Export Pipeline:**
+```
+1. Pre-Export Scaling (texture_scaler.py)
+   └─> Scales 4K → 1K using image.scale()
+        └─> Native Blender, no dependencies
+
+2. WebP Compression (glTF Exporter)
+   └─> Converts all textures to WebP
+        └─> export_image_format: 'WEBP'
+```
+
+**Platform Support:**
+- ✅ Windows - Fully tested
+- ✅ macOS - Auto-update now works
+- ✅ Linux - All features functional
+
+**Breaking Changes:**
+- None - All changes are backward compatible
+
+**Migration Notes:**
+- Users with Pillow installed: No changes needed, will use native scaler
+- Users without Pillow: No action required, everything works
+- macOS users: Auto-updates will now work correctly
+
 ## [0.2.2] - 2025-01-11
 
 ### Fixed

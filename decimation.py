@@ -21,6 +21,77 @@ def _preprocess_mesh_bmesh(bm) -> Tuple[bool, str]:
     try:
         issues_fixed = []
         
+        # Check for non-manifold geometry FIRST (critical for decimation)
+        non_manifold_verts = [v for v in bm.verts if not v.is_manifold]
+        non_manifold_edges = [e for e in bm.edges if not e.is_manifold]
+        
+        if non_manifold_verts or non_manifold_edges:
+            issues_fixed.append(f"detected {len(non_manifold_verts)} non-manifold verts, {len(non_manifold_edges)} non-manifold edges")
+            
+            # STRATEGY 1: Try aggressive merge by distance first
+            # Many non-manifold issues are caused by duplicate/near-duplicate vertices
+            if non_manifold_verts or non_manifold_edges:
+                for merge_dist in [0.001, 0.01, 0.1]:  # Try progressively larger distances
+                    try:
+                        removed = bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=merge_dist)
+                        removed_count = len(removed.get('verts', [])) if removed else 0
+                        
+                        if removed_count > 0:
+                            # Check if this fixed the non-manifold issues
+                            non_manifold_after = sum(1 for e in bm.edges if not e.is_manifold)
+                            
+                            if non_manifold_after == 0:
+                                issues_fixed.append(f"merged {removed_count} vertices (distance: {merge_dist}) - fixed all non-manifold issues")
+                                non_manifold_edges = []  # Clear for next checks
+                                non_manifold_verts = []
+                                break
+                            elif non_manifold_after < len(non_manifold_edges):
+                                issues_fixed.append(f"merged {removed_count} vertices (distance: {merge_dist}) - reduced non-manifold edges to {non_manifold_after}")
+                                # Update lists
+                                non_manifold_edges = [e for e in bm.edges if not e.is_manifold]
+                                non_manifold_verts = [v for v in bm.verts if not v.is_manifold]
+                                break
+                    except Exception as e:
+                        print(f"  Warning: Merge by distance {merge_dist} failed: {e}")
+            
+            # STRATEGY 2: Handle remaining non-manifold edges
+            if non_manifold_edges:
+                # Separate boundary edges (1 face) from interior non-manifold edges (3+ faces)
+                boundary_edges = [e for e in non_manifold_edges if len(e.link_faces) == 1]
+                interior_edges = [e for e in non_manifold_edges if len(e.link_faces) > 2]
+                
+                # Handle interior non-manifold edges (3+ faces) - dissolve them
+                if interior_edges:
+                    try:
+                        bmesh.ops.dissolve_edges(bm, edges=interior_edges, use_verts=True, use_face_split=False)
+                        issues_fixed.append(f"dissolved {len(interior_edges)} interior non-manifold edges")
+                    except Exception as e:
+                        print(f"  Warning: Could not dissolve interior non-manifold edges: {e}")
+                
+                # Handle boundary edges (1 face) - DELETE the connected faces
+                # This is more conservative than filling holes - just removes problematic geometry
+                if boundary_edges:
+                    try:
+                        # Get faces connected to boundary edges
+                        faces_to_delete = set()
+                        for e in boundary_edges:
+                            faces_to_delete.update(e.link_faces)
+                        
+                        if faces_to_delete:
+                            bmesh.ops.delete(bm, geom=list(faces_to_delete), context='FACES')
+                            issues_fixed.append(f"removed {len(faces_to_delete)} faces with boundary edges (non-manifold)")
+                    except Exception as e:
+                        print(f"  Warning: Could not delete boundary faces: {e}")
+            
+            # Remove remaining non-manifold vertices (loose verts with no faces)
+            non_manifold_verts_remaining = [v for v in bm.verts if not v.is_manifold and not v.link_faces]
+            if non_manifold_verts_remaining:
+                try:
+                    bmesh.ops.delete(bm, geom=non_manifold_verts_remaining, context='VERTS')
+                    issues_fixed.append(f"removed {len(non_manifold_verts_remaining)} non-manifold vertices")
+                except Exception as e:
+                    print(f"  Warning: Could not remove non-manifold vertices: {e}")
+        
         # Triangulate non-triangular faces (quads, ngons)
         non_tris = [f for f in bm.faces if len(f.verts) > 3]
         if non_tris:
@@ -197,6 +268,7 @@ def diagnose_mesh_issues(obj) -> str:
     
     mesh = obj.data
     issues = []
+    critical_issues = []
     
     # Check face types
     tris = sum(1 for p in mesh.polygons if len(p.vertices) == 3)
@@ -218,21 +290,28 @@ def diagnose_mesh_issues(obj) -> str:
     if loose_edges > 0:
         issues.append(f"{loose_edges} loose edges")
     
-    # Check for non-manifold geometry
+    # Check for non-manifold geometry (CRITICAL for decimation)
     non_manifold_verts = sum(1 for v in bm.verts if not v.is_manifold)
     non_manifold_edges = sum(1 for e in bm.edges if not e.is_manifold)
     
     if non_manifold_verts > 0:
-        issues.append(f"{non_manifold_verts} non-manifold vertices")
+        critical_issues.append(f"⚠ CRITICAL: {non_manifold_verts} non-manifold vertices")
     if non_manifold_edges > 0:
-        issues.append(f"{non_manifold_edges} non-manifold edges")
+        critical_issues.append(f"⚠ CRITICAL: {non_manifold_edges} non-manifold edges (may cause crash)")
+    
+    # Check for zero-area faces
+    zero_area_faces = sum(1 for f in bm.faces if f.calc_area() < 0.000001)
+    if zero_area_faces > 0:
+        issues.append(f"{zero_area_faces} zero-area faces")
     
     bm.free()
     
-    if not issues:
+    all_issues = critical_issues + issues
+    
+    if not all_issues:
         return f"{len(mesh.polygons)} faces, {len(mesh.vertices)} vertices, no obvious issues"
     
-    return f"{len(mesh.polygons)} faces, {len(mesh.vertices)} vertices - Issues: {', '.join(issues)}"
+    return f"{len(mesh.polygons)} faces, {len(mesh.vertices)} vertices - Issues: {', '.join(all_issues)}"
 
 
 def _validate_mesh(obj) -> Tuple[bool, str]:

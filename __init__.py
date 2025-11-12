@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 2),
+    "version": (0, 2, 3),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -147,6 +147,30 @@ class TextureExcludeMaterial(PropertyGroup):
         default=""
     )
 
+class SubdivExcludeObject(PropertyGroup):
+    """Property group to store object names to exclude from subdivision override"""
+    object_name: bpy.props.StringProperty(
+        name="Object Name",
+        description="Name of the object to exclude from subdivision override",
+        default=""
+    )
+
+class SubdivIndividualOverride(PropertyGroup):
+    """Property group to store individual subdivision override levels per object"""
+    object_name: bpy.props.StringProperty(
+        name="Object Name",
+        description="Name of the object with individual subdivision override",
+        default=""
+    )
+    
+    override_level: bpy.props.IntProperty(
+        name="Override Level",
+        description="Individual subdivision level override for this object",
+        default=3,
+        min=0,
+        max=4
+    )
+
 class FramoExportSettings(PropertyGroup):
     # Compression Settings
     use_draco: BoolProperty(
@@ -251,6 +275,44 @@ class FramoExportSettings(PropertyGroup):
         name="Adaptive Decimation",
         description="Adjust decimation ratio based on object complexity",
         default=False
+    )
+    
+    # Subdivision Override Settings
+    enable_subdiv_override: BoolProperty(
+        name="Override Subdivision Level",
+        description="Temporarily set all subdivision modifiers to a specific level during export",
+        default=True
+    )
+    
+    subdiv_override_level: IntProperty(
+        name="Subdivision Level",
+        description="Subdivision level to use during export (0 = no subdivision, higher = more detail)",
+        default=3,
+        min=0,
+        max=4
+    )
+    
+    subdiv_exclude_objects: bpy.props.CollectionProperty(
+        type=SubdivExcludeObject,
+        name="Excluded Objects",
+        description="Objects to exclude from subdivision override"
+    )
+    
+    subdiv_dropdown_expanded: BoolProperty(
+        name="Show Affected Objects",
+        description="Expand to show all objects affected by subdivision override",
+        default=False
+    )
+    
+    subdiv_individual_overrides: bpy.props.CollectionProperty(
+        type=SubdivIndividualOverride,
+        name="Individual Overrides",
+        description="Individual subdivision level overrides per object"
+    )
+    
+    subdiv_exclude_objects_index: bpy.props.IntProperty(
+        name="Excluded Objects Index",
+        default=0
     )
     
     # Texture Optimization Settings
@@ -521,7 +583,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        """Only allow export if objects are selected, user is connected, and no unsupported materials exist"""
+        """Only allow export if objects are selected and user is connected"""
         # Require user to be connected to framo.app
         global framo_user_info
         if not framo_user_info.get('name'):
@@ -531,31 +593,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
         if not context.selected_objects:
             return False
 
-        # If material analyzer not available, allow export (can't check materials)
-        if not MATERIAL_ANALYZER_AVAILABLE:
-            return True
-
-        # Check for unsupported materials in selected objects
-        try:
-            materials_to_check = material_analyzer.get_materials_to_analyze(context)
-            if not materials_to_check:
-                # No materials found - allow export
-                return True
-
-            # Check each material
-            for material in materials_to_check:
-                if not material:
-                    continue
-                result = material_analyzer.analyze_material_readiness(material)
-                if not result.get('is_ready', True):
-                    # Found unsupported material - disable export
-                    return False
-
-            # All materials are ready
-            return True
-        except Exception:
-            # If analysis fails, allow export (fail open)
-            return True
+        return True
     
     def execute(self, context):
         global server_instance
@@ -579,9 +617,60 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
         # Initialize variables that need to be accessible in finally block
         temp_objects = []
         original_selection = context.selected_objects.copy() if context.selected_objects else []
+        subdiv_original_levels = []  # Store original subdivision levels for restoration
         
         try:
             info_parts = []
+            
+            # Apply subdivision override if enabled
+            if settings.enable_subdiv_override:
+                update_export_status(context, "Applying subdivision override...")
+                
+                # Get excluded object names
+                excluded_objects = [item.object_name for item in settings.subdiv_exclude_objects if item.object_name]
+                
+                # Get individual override levels
+                individual_overrides = {item.object_name: item.override_level 
+                                      for item in settings.subdiv_individual_overrides}
+                
+                # Get all objects to process (selected objects or temp copies if they exist)
+                objects_to_check = context.selected_objects if context.selected_objects else []
+                
+                for obj in objects_to_check:
+                    # Skip excluded objects
+                    if obj.name in excluded_objects:
+                        continue
+                    
+                    if obj.type == 'MESH':
+                        for modifier in obj.modifiers:
+                            if modifier.type == 'SUBSURF':
+                                # Get current subdivision level (prefer render_levels if set, otherwise use levels)
+                                current_viewport_level = modifier.levels
+                                current_render_level = modifier.render_levels if hasattr(modifier, 'render_levels') and modifier.render_levels > 0 else modifier.levels
+                                
+                                # Check for individual override first, then fall back to global override
+                                override_level = individual_overrides.get(obj.name, settings.subdiv_override_level)
+                                
+                                # Only override if override level is smaller than current level
+                                # This ensures we only reduce subdivision, never increase it
+                                should_override_viewport = override_level < current_viewport_level
+                                should_override_render = override_level < current_render_level
+                                
+                                if should_override_viewport or should_override_render:
+                                    # Store original levels
+                                    original_viewport = modifier.levels
+                                    original_render = modifier.render_levels if hasattr(modifier, 'render_levels') else modifier.levels
+                                    subdiv_original_levels.append((obj, modifier, original_viewport, original_render))
+                                    
+                                    # Apply override only where needed
+                                    if should_override_viewport:
+                                        modifier.levels = override_level
+                                    if hasattr(modifier, 'render_levels') and should_override_render:
+                                        modifier.render_levels = override_level
+                
+                if subdiv_original_levels:
+                    info_parts.append(f"Subdiv Override: Level {settings.subdiv_override_level}")
+
             
             # Create temporary copies of objects for decimation/repair
             # This ensures we never modify the original geometry in Blender
@@ -647,7 +736,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     total_faces_after = 0
                     
                     for idx, obj in enumerate(objects_to_decimate):
-                        if len(obj.data.polygons) > 100:  # Only decimate high-poly objects
+                        if len(obj.data.polygons) > 10:  # Only decimate high-poly objects
                             faces_before = len(obj.data.polygons)
                             total_faces_before += faces_before
                             
@@ -683,7 +772,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                         else:
                             info_parts.append(f"Decimated {decimated_count} objects")
             
-            # Analyze materials before export and block if unsupported materials found
+            # Analyze materials before export (informational only - doesn't block export)
             materials_to_analyze = []
             material_analysis_results = {}
             unsupported_materials = []
@@ -704,21 +793,16 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     if not result['is_ready']:
                         unsupported_materials.append(material.name)
             
-            # Block export if unsupported materials are present
+            # Warn about unsupported materials but don't block export
             if unsupported_materials:
                 material_list = ', '.join(unsupported_materials[:5])  # Show first 5
                 if len(unsupported_materials) > 5:
                     material_list += f" (+{len(unsupported_materials) - 5} more)"
                 
-                settings.is_exporting = False
-                update_export_status(context, "")
-                
                 self.report(
-                    {'ERROR'}, 
-                    f"Export blocked: {len(unsupported_materials)} unsupported material(s) found. "
-                    f"Fix materials in Material Readiness panel: {material_list}"
+                    {'WARNING'}, 
+                    f"{len(unsupported_materials)} unsupported material(s) detected: {material_list}. Check Material Readiness panel."
                 )
-                return {'CANCELLED'}
             
             # Process textures: scale down (NON-DESTRUCTIVE)
             # WebP conversion happens automatically in Blender's glTF exporter
@@ -820,7 +904,38 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 info_parts.append("Uncompressed")
             
             # Export to GLB with compression settings
-            bpy.ops.export_scene.gltf(**export_params)
+            # Try with WEBP format first, with fallbacks if some images can't be converted
+            export_success = False
+            export_error = None
+            
+            try:
+                bpy.ops.export_scene.gltf(**export_params)
+                export_success = True
+            except Exception as e:
+                export_error = str(e)
+                print(f"Export failed with WEBP image format: {e}")
+                
+                # Fallback 1: Try with AUTO (let Blender choose best format)
+                try:
+                    export_params['export_image_format'] = 'AUTO'
+                    bpy.ops.export_scene.gltf(**export_params)
+                    export_success = True
+                    self.report({'WARNING'}, "Some textures couldn't convert to WebP - exported with AUTO format")
+                except Exception as e2:
+                    print(f"Export also failed with AUTO format: {e2}")
+                    
+                    # Fallback 2: Try with NONE (original format)
+                    try:
+                        export_params['export_image_format'] = 'NONE'
+                        bpy.ops.export_scene.gltf(**export_params)
+                        export_success = True
+                        self.report({'WARNING'}, "Export completed with original texture formats (conversion failed)")
+                    except Exception as e3:
+                        export_error = str(e3)
+                        print(f"Export also failed with NONE format: {e3}")
+            
+            if not export_success:
+                raise Exception(f"GLB export failed: {export_error}")
             
             # Read the GLB file
             with open(tmp_path, 'rb') as f:
@@ -908,6 +1023,24 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
         finally:
             # Clear export status after a brief moment
             settings.is_exporting = False
+            
+            # Restore original subdivision levels
+            if subdiv_original_levels:
+                try:
+                    for obj, modifier, original_viewport, original_render in subdiv_original_levels:
+                        if obj and obj.name in bpy.data.objects:
+                            # Find the modifier again (it should still exist)
+                            for mod in obj.modifiers:
+                                if mod == modifier and mod.type == 'SUBSURF':
+                                    mod.levels = original_viewport
+                                    if hasattr(mod, 'render_levels'):
+                                        mod.render_levels = original_render
+                                    break
+                    
+                    print("✓ Restored original subdivision levels after export")
+                except Exception as e:
+                    print(f"Warning: Could not fully restore subdivision levels: {e}")
+            
             # Restore original textures and clean up temporary copies
             if TEXTURE_ANALYZER_AVAILABLE and texture_scaled_copies:
                 try:
@@ -961,36 +1094,6 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     bpy.context.view_layer.objects.active = original_selection[0]
         
         return {'FINISHED'}
-
-def get_objects_with_high_subdivision(context):
-    """
-    Check selected objects for subdivision modifiers with level >= 3.
-    
-    Returns:
-        List of tuples: [(object_name, subdivision_level), ...]
-        Only includes objects with subdivision level >= 3
-    """
-    high_subdiv_objects = []
-    
-    if not context.selected_objects:
-        return high_subdiv_objects
-    
-    for obj in context.selected_objects:
-        if obj.type != 'MESH':
-            continue
-        
-        # Check all modifiers for subdivision surface modifiers
-        for modifier in obj.modifiers:
-            if modifier.type == 'SUBSURF':
-                # Check both viewport and render levels
-                # Use render_levels if available, otherwise use levels
-                level = modifier.render_levels if hasattr(modifier, 'render_levels') and modifier.render_levels > 0 else modifier.levels
-                
-                if level >= 3:
-                    high_subdiv_objects.append((obj.name, level))
-                    break  # Only report once per object
-    
-    return high_subdiv_objects
 
 class FRAMO_PT_export_panel(bpy.types.Panel):
     bl_label = f"Framo Bridge v{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}"
@@ -1114,13 +1217,126 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             
             # Show decimation info (without objects count - that's in Selection section)
             mesh_objects = [obj for obj in context.selected_objects if obj.type == 'MESH'] if context.selected_objects else []
-            high_poly_objects = [obj for obj in mesh_objects if len(obj.data.polygons) > 100]
+            high_poly_objects = [obj for obj in mesh_objects if len(obj.data.polygons) > 10]
             if high_poly_objects:
                 col.separator()
                 total_faces = sum(len(obj.data.polygons) for obj in high_poly_objects)
                 col.label(text=f"Total faces: {total_faces:,}")
                 reduction = (1 - settings.decimate_ratio) * 100
                 col.label(text=f"Est. reduction: {reduction:.0f}%")
+        
+        # Subdivision Override - in its own box
+        subdiv_box = main_box.box()
+        row = subdiv_box.row()
+        row.label(text="Subdivision Override", icon='MOD_SUBSURF')
+        row.prop(settings, "enable_subdiv_override", text="", emboss=True)
+        
+        if settings.enable_subdiv_override:
+            col = subdiv_box.column(align=True)
+            col.prop(settings, "subdiv_override_level", slider=True)
+            
+            # Show subdivision info for selected objects
+            if context.selected_objects:
+                # Get excluded object names
+                excluded_objects = [item.object_name for item in settings.subdiv_exclude_objects if item.object_name]
+                
+                subdiv_objects = []
+                for obj in context.selected_objects:
+                    if obj.type == 'MESH':
+                        for modifier in obj.modifiers:
+                            if modifier.type == 'SUBSURF':
+                                current_level = modifier.render_levels if hasattr(modifier, 'render_levels') and modifier.render_levels > 0 else modifier.levels
+                                is_excluded = obj.name in excluded_objects
+                                subdiv_objects.append((obj.name, current_level, is_excluded))
+                                break
+                
+                if subdiv_objects:
+                    col.separator()
+                    
+                    # Get individual override levels
+                    individual_overrides = {item.object_name: item.override_level 
+                                          for item in settings.subdiv_individual_overrides}
+                    
+                    # Filter to show objects that will be reduced, are excluded, or have individual overrides
+                    objects_to_show = []
+                    for name, level, excluded in subdiv_objects:
+                        has_individual_override = name in individual_overrides
+                        global_will_reduce = level > settings.subdiv_override_level
+                        individual_will_reduce = has_individual_override and level > individual_overrides[name]
+                        
+                        if excluded or global_will_reduce or has_individual_override:
+                            objects_to_show.append((name, level, excluded))
+                    
+                    if objects_to_show:
+                        # Count non-excluded objects that will be overridden
+                        non_excluded_count = sum(1 for _, level, excluded in objects_to_show if not excluded)
+                        excluded_count = sum(1 for _, _, excluded in objects_to_show if excluded)
+                        
+                        # Create collapsible dropdown box
+                        dropdown_box = col.box()
+                        dropdown_row = dropdown_box.row()
+                        
+                        # Create summary text
+                        if excluded_count > 0:
+                            summary_text = f"{non_excluded_count} will be overridden, {excluded_count} excluded"
+                        else:
+                            summary_text = f"{non_excluded_count} object(s) will be overridden"
+                        
+                        # Show summary text on the left
+                        dropdown_row.label(text=summary_text)
+                        
+                        # Toggle button with icon on the right
+                        dropdown_row.prop(settings, 'subdiv_dropdown_expanded', 
+                                        text="", 
+                                        icon='TRIA_DOWN' if settings.subdiv_dropdown_expanded else 'TRIA_RIGHT',
+                                        emboss=False, toggle=True)
+                        
+                        if settings.subdiv_dropdown_expanded:
+                            dropdown_content = dropdown_box.column(align=True)
+                            dropdown_content.scale_y = 0.85
+                            
+                            # Get individual override levels
+                            individual_overrides = {item.object_name: item.override_level 
+                                                  for item in settings.subdiv_individual_overrides}
+                            
+                            for obj_name, level, is_excluded in objects_to_show:
+                                info_row = dropdown_content.row(align=True)
+                                
+                                if is_excluded:
+                                    # Excluded objects: no checkbox, just show level
+                                    info_row.label(text=f"{obj_name}: Level {level}")
+                                else:
+                                    # Check if object has individual override
+                                    has_individual_override = obj_name in individual_overrides
+                                    
+                                    # Checkbox: checked = uses global override, unchecked = has individual override
+                                    toggle_op = info_row.operator("framo.toggle_subdiv_exclusion", 
+                                                                text="", 
+                                                                icon='CHECKBOX_HLT' if not has_individual_override else 'CHECKBOX_DEHLT',
+                                                                emboss=False)
+                                    toggle_op.object_name = obj_name
+                                    
+                                    if has_individual_override:
+                                        # Show individual override slider (unchecked = individual)
+                                        override_item = None
+                                        for item in settings.subdiv_individual_overrides:
+                                            if item.object_name == obj_name:
+                                                override_item = item
+                                                break
+                                        
+                                        if override_item:
+                                            info_row.label(text=f"{obj_name}: Level {level} →")
+                                            slider_row = info_row.row(align=True)
+                                            slider_row.scale_x = 1.0
+                                            slider_row.prop(override_item, "override_level", text="", slider=True)
+                                            
+                                            # Remove individual override button
+                                            remove_override_op = info_row.operator("framo.remove_individual_subdiv_override", 
+                                                                                  text="", icon='X', emboss=False)
+                                            remove_override_op.object_name = obj_name
+                                    else:
+                                        # Show global override info (checked = global override)
+                                        info_row.label(text=f"{obj_name}: Level {level} → {settings.subdiv_override_level}")
         
         # Texture Optimization - in its own box
         texture_box = main_box.box()
@@ -1351,24 +1567,6 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                             # Add spacing after problematic material
                             col.separator()
         
-        # Optional Optimizations
-        layout.separator()
-        layout.label(text="Optional Optimizations:")
-        opt_box = layout.box()
-        
-        # Disable optional optimizations if no objects selected
-        opt_box.enabled = len(context.selected_objects) > 0
-        
-        if context.selected_objects:
-            high_subdiv_objects = get_objects_with_high_subdivision(context)
-            if high_subdiv_objects:
-                opt_box.label(text="High subdivision detected:", icon='INFO')
-                col = opt_box.column(align=True)
-                for obj_name, level in high_subdiv_objects:
-                    col.label(text=f"  • {obj_name}: Level {level}")
-            else:
-                opt_box.label(text="No high subdivision modifiers detected", icon='CHECKMARK')
-        
         # Export status indicator (loading indicator)
         if settings.is_exporting and settings.export_status:
             layout.separator()
@@ -1398,8 +1596,6 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
             button_enabled = False
         elif not context.selected_objects:
             button_enabled = False
-        elif has_unsupported_materials:
-            button_enabled = False
 
         # Create operator button (poll method will handle actual enabling/disabling)
         if isinstance(icon_id, int):
@@ -1421,11 +1617,15 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
                     text="Select at least one object to export",
                     icon='ERROR'
                 )
-            elif has_unsupported_materials:
-                warning_row.label(
-                    text=f"Fix {unsupported_count} unsupported material(s) above to enable export",
-                    icon='ERROR'
-                )
+        
+        # Show info message if there are unsupported materials (warning only, doesn't block export)
+        if has_unsupported_materials:
+            warning_row = layout.row()
+            warning_row.scale_y = 0.9
+            warning_row.label(
+                text=f"{unsupported_count} unsupported material(s) - check Material Readiness panel",
+                icon='INFO'
+            )
         
 class FRAMO_OT_reset_export_settings(bpy.types.Operator):
     bl_idname = "framo.reset_export_settings"
@@ -1449,6 +1649,10 @@ class FRAMO_OT_reset_export_settings(bpy.types.Operator):
         # Reset decimation settings
         settings.enable_decimation = True
         settings.decimate_ratio = 0.1
+        
+        # Reset subdivision override settings
+        settings.enable_subdiv_override = True
+        settings.subdiv_override_level = 3
         
         self.report({'INFO'}, "Export settings reset to defaults")
         return {'FINISHED'}
@@ -1748,6 +1952,222 @@ class FRAMO_OT_remove_excluded_material(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def get_subdiv_objects_for_exclusion(self, context):
+    """Get objects that would be affected by subdivision override"""
+    settings = context.scene.framo_export_settings
+    filtered_objects = []
+    
+    # Get excluded object names
+    excluded_objects = [item.object_name for item in settings.subdiv_exclude_objects if item.object_name]
+    
+    print(f"\n=== DEBUG: Filtering objects for exclusion list ===")
+    print(f"Override level: {settings.subdiv_override_level}")
+    print(f"Already excluded: {excluded_objects}")
+    
+    # Check all mesh objects (not just selected, so we can exclude any object)
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH':
+            continue
+        
+        for modifier in obj.modifiers:
+            if modifier.type == 'SUBSURF':
+                # Use exact same logic as UI display
+                current_level = modifier.render_levels if hasattr(modifier, 'render_levels') and modifier.render_levels > 0 else modifier.levels
+                
+                print(f"  {obj.name}: level={current_level}, override={settings.subdiv_override_level}, excluded={obj.name in excluded_objects}")
+                
+                # Only include if current level is higher than override (will be reduced)
+                # and not already excluded
+                if current_level > settings.subdiv_override_level and obj.name not in excluded_objects:
+                    print(f"    -> INCLUDED")
+                    filtered_objects.append((obj.name, obj.name, ""))
+                    break  # Found a qualifying modifier, no need to check others
+                else:
+                    print(f"    -> FILTERED OUT (level <= override or already excluded)")
+                break
+    
+    print(f"Total filtered objects: {len(filtered_objects)}")
+    return filtered_objects if filtered_objects else [("", "No objects to exclude", "")]
+
+
+class FRAMO_OT_add_excluded_subdiv_object(bpy.types.Operator):
+    bl_idname = "framo.add_excluded_subdiv_object"
+    bl_label = "Add Excluded Object"
+    bl_description = "Add an object to exclude from subdivision override"
+    
+    object_name: bpy.props.EnumProperty(
+        name="Object",
+        description="Object to exclude from subdivision override",
+        items=get_subdiv_objects_for_exclusion
+    )
+    
+    def invoke(self, context, event):
+        # Get filterable objects
+        filterable_objects = get_subdiv_objects_for_exclusion(self, context)
+        
+        # Check if there are any valid objects (ignore the placeholder)
+        if not filterable_objects or (len(filterable_objects) == 1 and filterable_objects[0][0] == ""):
+            self.report({'WARNING'}, "No mesh objects with subdivision levels higher than the override")
+            return {'CANCELLED'}
+        
+        return context.window_manager.invoke_props_dialog(self)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "object_name", text="Object")
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if empty placeholder was selected
+        if not self.object_name or self.object_name == "":
+            self.report({'WARNING'}, "No valid object selected")
+            return {'CANCELLED'}
+        
+        # Check if object already in exclude list
+        for item in settings.subdiv_exclude_objects:
+            if item.object_name == self.object_name:
+                self.report({'WARNING'}, f"Object '{self.object_name}' is already in the exclude list")
+                return {'CANCELLED'}
+        
+        # Add new item
+        new_item = settings.subdiv_exclude_objects.add()
+        new_item.object_name = self.object_name
+        
+        self.report({'INFO'}, f"Added '{self.object_name}' to exclude list")
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+def get_object_subdiv_level(object_name):
+    """Get the current subdivision level of an object"""
+    obj = bpy.data.objects.get(object_name)
+    if obj and obj.type == 'MESH':
+        for modifier in obj.modifiers:
+            if modifier.type == 'SUBSURF':
+                # Prefer render_levels if set, otherwise use levels
+                return modifier.render_levels if hasattr(modifier, 'render_levels') and modifier.render_levels > 0 else modifier.levels
+    return 0
+
+
+class FRAMO_OT_toggle_subdiv_exclusion(bpy.types.Operator):
+    bl_idname = "framo.toggle_subdiv_exclusion"
+    bl_label = "Toggle Subdivision Override Mode"
+    bl_description = "Toggle between global override (checked) and individual override (unchecked)"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if object has individual override
+        override_index = -1
+        for i, item in enumerate(settings.subdiv_individual_overrides):
+            if item.object_name == self.object_name:
+                override_index = i
+                break
+        
+        if override_index >= 0:
+            # Remove individual override (switch to global override)
+            settings.subdiv_individual_overrides.remove(override_index)
+        else:
+            # Add individual override (switch to individual override)
+            # Initialize with the object's actual subdivision level
+            actual_level = get_object_subdiv_level(self.object_name)
+            new_item = settings.subdiv_individual_overrides.add()
+            new_item.object_name = self.object_name
+            new_item.override_level = actual_level
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_add_individual_subdiv_override(bpy.types.Operator):
+    bl_idname = "framo.add_individual_subdiv_override"
+    bl_label = "Add Individual Subdivision Override"
+    bl_description = "Add an individual subdivision override for this object"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Check if object already has an individual override
+        for item in settings.subdiv_individual_overrides:
+            if item.object_name == self.object_name:
+                self.report({'WARNING'}, f"Object '{self.object_name}' already has an individual override")
+                return {'CANCELLED'}
+        
+        # Add new individual override with object's actual subdivision level
+        actual_level = get_object_subdiv_level(self.object_name)
+        new_item = settings.subdiv_individual_overrides.add()
+        new_item.object_name = self.object_name
+        new_item.override_level = actual_level
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_remove_individual_subdiv_override(bpy.types.Operator):
+    bl_idname = "framo.remove_individual_subdiv_override"
+    bl_label = "Remove Individual Subdivision Override"
+    bl_description = "Remove individual subdivision override and use global override"
+    
+    object_name: bpy.props.StringProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        # Find and remove the individual override
+        for i, item in enumerate(settings.subdiv_individual_overrides):
+            if item.object_name == self.object_name:
+                settings.subdiv_individual_overrides.remove(i)
+                break
+        
+        # Force UI refresh
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
+class FRAMO_OT_remove_excluded_subdiv_object(bpy.types.Operator):
+    bl_idname = "framo.remove_excluded_subdiv_object"
+    bl_label = "Remove Excluded Object"
+    bl_description = "Remove an object from the subdivision override exclude list"
+    
+    index: bpy.props.IntProperty()
+    
+    def execute(self, context):
+        settings = context.scene.framo_export_settings
+        
+        if 0 <= self.index < len(settings.subdiv_exclude_objects):
+            object_name = settings.subdiv_exclude_objects[self.index].object_name
+            settings.subdiv_exclude_objects.remove(self.index)
+            self.report({'INFO'}, f"Removed '{object_name}' from exclude list")
+            
+            # Force UI refresh
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+        
+        return {'FINISHED'}
+
+
 # ============================================================================
 # Update System Operators
 # ============================================================================
@@ -1972,6 +2392,8 @@ def stop_server():
 classes = [
     FramoBridgePreferences,
     TextureExcludeMaterial,
+    SubdivExcludeObject,
+    SubdivIndividualOverride,
     MaterialExpandedState,
     FramoExportSettings,
     FRAMO_OT_export_to_web,
@@ -1983,6 +2405,11 @@ classes = [
     FRAMO_OT_open_material_in_shading,
     FRAMO_OT_add_excluded_material,
     FRAMO_OT_remove_excluded_material,
+    FRAMO_OT_add_excluded_subdiv_object,
+    FRAMO_OT_remove_excluded_subdiv_object,
+    FRAMO_OT_toggle_subdiv_exclusion,
+    FRAMO_OT_add_individual_subdiv_override,
+    FRAMO_OT_remove_individual_subdiv_override,
     FRAMO_PT_export_panel
 ]
 
