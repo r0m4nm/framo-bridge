@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 2, 8),
+    "version": (0, 2, 9),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -214,7 +214,7 @@ class SubdivIndividualOverride(PropertyGroup):
         description="Individual subdivision level override for this object",
         default=3,
         min=0,
-        max=4
+        max=6
     )
 
 class FramoExportSettings(PropertyGroup):

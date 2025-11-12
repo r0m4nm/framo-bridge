@@ -5,7 +5,7 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.8] - 2025-01-11
+## [0.2.9] - 2025-01-11
 
 ### Added - Update System
 - **Update notification in main panel** - Update alerts now appear in the main Framo Bridge sidebar
@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Runs in background (non-blocking)
   - Silent operation with clear notifications when updates are found
 
+### Added - Subdivision Override
+- **Individual subdivision overrides** - Set custom subdivision levels per object
+  - Checkbox to toggle between global override (checked) and individual override (unchecked)
+  - Individual override sliders for each object (max level 6)
+  - Sliders initialize with object's actual subdivision level
+  - Objects with individual overrides are not affected by global override
+- **Improved subdivision override logic** - Only reduces subdivision, never increases
+  - Override only applies if override value is smaller than object's current level
+  - Objects with lower subdivision levels remain unchanged
+  - Prevents accidental subdivision increases during export
+- **Enhanced UI** - Collapsible dropdown showing all affected objects
+  - Summary shows count of objects that will be overridden
+  - Expandable list with checkboxes and individual override controls
+  - Clear visual distinction between global and individual overrides
+
 ### Changed - Update System
 - **Simplified Preferences** - Removed "Automatically check for updates" option
   - Update checks are now always enabled by default
@@ -27,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prominent success message in main panel and Preferences
   - Shows restart requirement with alternative option (disable/re-enable addon)
   - Formatted console messages for better visibility
+- **Subdivision override slider** - Reduced global override max from 6 to 4
+  - Individual overrides can still go up to level 6
+  - Better default range for most use cases
 
 ### Fixed - Update System
 - **Installation flow** - Improved update installation process
