@@ -769,8 +769,9 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             mesh_objects = [obj for obj in objects_to_process if obj.type == 'MESH']
             non_mesh_objects = [obj for obj in objects_to_process if obj.type != 'MESH']
             
-            # Create temporary copies if decimation or UV unwrapping is enabled
-            if (settings.enable_decimation or settings.enable_auto_uv) and mesh_objects:
+            # Create temporary copies if decimation, UV unwrapping, or material cleaning is enabled
+            # Material cleaning needs temp copies to avoid modifying the original scene
+            if (settings.enable_decimation or settings.enable_auto_uv or MATERIAL_CLEANER_AVAILABLE) and mesh_objects:
                 update_export_status(context, f"Creating temporary copies of {len(mesh_objects)} object(s)...")
                 
                 # Deselect all first
@@ -801,21 +802,32 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 elif non_mesh_objects:
                     context.view_layer.objects.active = non_mesh_objects[0]
             
-            # Clean unused materials (on temp copies or originals)
+            # Clean unused materials (on temp copies)
             # This removes materials that aren't applied to any faces
             # MASSIVE file size optimization when materials contain textures (up to 10x reduction)
             # Runs automatically in background - no downside to always enabling
-            if MATERIAL_CLEANER_AVAILABLE:
+            if MATERIAL_CLEANER_AVAILABLE and temp_objects:
                 update_export_status(context, "Removing unused materials...")
                 
-                # Clean materials on temp objects if they exist, otherwise on originals
-                objects_to_clean = temp_objects if temp_objects else mesh_objects
+                print("\n" + "="*60)
+                print("MATERIAL CLEANING:")
+                print("="*60)
                 
-                if objects_to_clean:
-                    cleaning_result = material_cleaner.clean_materials_batch(objects_to_clean, dry_run=False)
-                    
-                    if cleaning_result['total_removed'] > 0:
-                        info_parts.append(f"Removed {cleaning_result['total_removed']} unused materials from {cleaning_result['cleaned_objects']} objects")
+                cleaning_result = material_cleaner.clean_materials_batch(temp_objects, dry_run=False)
+                
+                print(f"Processed {cleaning_result['total_objects']} objects")
+                print(f"Cleaned {cleaning_result['cleaned_objects']} objects")
+                print(f"Removed {cleaning_result['total_removed']} unused materials")
+                
+                # Show detailed results
+                for result in cleaning_result['results']:
+                    if result['removed_count'] > 0:
+                        print(f"  • {result['object_name']}: removed {result['removed_count']} materials ({', '.join(result['removed_materials'])})")
+                
+                print("="*60 + "\n")
+                
+                if cleaning_result['total_removed'] > 0:
+                    info_parts.append(f"Removed {cleaning_result['total_removed']} unused materials from {cleaning_result['cleaned_objects']} objects")
             
             # Perform auto UV unwrapping if enabled (on temp copies or originals)
             if settings.enable_auto_uv:
