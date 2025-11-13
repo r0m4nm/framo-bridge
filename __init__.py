@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Framo Bridge",
     "author": "Roman Moor",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Framo Bridge",
     "description": "Export optimized GLB models directly to web applications with Draco compression, mesh decimation, and native texture scaling (no dependencies required)",
@@ -63,6 +63,14 @@ try:
 except ImportError:
     UV_UNWRAP_AVAILABLE = False
     print("Warning: uv_unwrap module not available.")
+
+# Try to import UV atlas module
+try:
+    from . import uv_atlas
+    UV_ATLAS_AVAILABLE = True
+except ImportError:
+    UV_ATLAS_AVAILABLE = False
+    print("Warning: uv_atlas module not available.")
 
 # Try to import texture scaler module (preferred - no dependencies)
 try:
@@ -338,7 +346,38 @@ class FramoExportSettings(PropertyGroup):
         description="Automatically unwrap meshes that don't have UV maps using Smart UV Project",
         default=True
     )
-    
+
+    enable_uv_atlasing: BoolProperty(
+        name="Material-Based UV Atlasing",
+        description="Group objects with the same material into shared UV atlases to reduce draw calls",
+        default=True
+    )
+
+    atlas_min_objects: IntProperty(
+        name="Min Objects for Atlas",
+        description="Minimum number of objects required to create a UV atlas (objects below this are unwrapped individually)",
+        default=2,
+        min=2,
+        max=10
+    )
+
+    atlas_texture_size: IntProperty(
+        name="Atlas Texture Size",
+        description="Target texture resolution for UV atlas packing (in pixels)",
+        default=1024,
+        min=512,
+        max=4096
+    )
+
+    atlas_margin: FloatProperty(
+        name="Atlas UV Margin",
+        description="Margin between UV islands in atlas (prevents texture bleeding)",
+        default=0.05,
+        min=0.0,
+        max=0.2,
+        precision=3
+    )
+
     adaptive_decimation: BoolProperty(
         name="Adaptive Decimation",
         description="Adjust decimation ratio based on object complexity",
@@ -872,23 +911,53 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     info_parts.append(f"Removed {cleaning_result['total_removed']} unused materials from {cleaning_result['cleaned_objects']} objects")
             
             # Perform auto UV unwrapping if enabled (on temp copies or originals)
+            atlas_objects = []  # Track newly created atlas objects
             if settings.enable_auto_uv:
-                if not UV_UNWRAP_AVAILABLE:
-                    self.report({'WARNING'}, "UV unwrapping module not available.")
+                if not UV_UNWRAP_AVAILABLE and not UV_ATLAS_AVAILABLE:
+                    self.report({'WARNING'}, "UV unwrapping modules not available.")
                 else:
                     objects_to_unwrap = temp_objects if temp_objects else mesh_objects
-                    
+
                     if objects_to_unwrap:
                         update_export_status(context, f"UV unwrapping {len(objects_to_unwrap)} object(s)...")
-                        uv_stats = uv_unwrap.auto_unwrap_objects(
-                            objects_to_unwrap,
-                            angle_limit=66.0,
-                            island_margin=0.02,
-                            verbose=False
-                        )
-                        
-                        if uv_stats['unwrapped'] > 0:
-                            info_parts.append(f"UV unwrapped {uv_stats['unwrapped']} objects")
+
+                        # Use atlas system if available and enabled
+                        if settings.enable_uv_atlasing and UV_ATLAS_AVAILABLE:
+                            uv_stats = uv_atlas.auto_unwrap_with_atlasing(
+                                objects_to_unwrap,
+                                enable_atlasing=True,
+                                min_group_size=settings.atlas_min_objects,
+                                atlas_texture_size=settings.atlas_texture_size,
+                                atlas_margin=settings.atlas_margin,
+                                fallback_angle_limit=66.0,
+                                fallback_island_margin=0.02,
+                                verbose=False
+                            )
+
+                            # Store atlas objects for export
+                            atlas_objects = uv_stats.get('atlas_objects', [])
+
+                            # Build info message
+                            info_parts_uv = []
+                            if uv_stats['atlases_created'] > 0:
+                                info_parts_uv.append(f"{uv_stats['atlases_created']} UV atlases ({uv_stats['objects_in_atlases']} objects)")
+                            if uv_stats['individual_unwraps'] > 0:
+                                info_parts_uv.append(f"{uv_stats['individual_unwraps']} individual unwraps")
+
+                            if info_parts_uv:
+                                info_parts.append(f"UV: {', '.join(info_parts_uv)}")
+
+                        elif UV_UNWRAP_AVAILABLE:
+                            # Fallback to old individual unwrap system
+                            uv_stats = uv_unwrap.auto_unwrap_objects(
+                                objects_to_unwrap,
+                                angle_limit=66.0,
+                                island_margin=0.02,
+                                verbose=False
+                            )
+
+                            if uv_stats['unwrapped'] > 0:
+                                info_parts.append(f"UV unwrapped {uv_stats['unwrapped']} objects")
             
             # Perform mesh decimation if enabled (on temp copies) - always use bmesh
             if settings.enable_decimation:
@@ -1069,16 +1138,48 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                 tmp_path = tmp_file.name
             
             # Prepare export parameters
-            # If we have temp objects, they're already selected for export
-            # Otherwise, restore original selection for export
-            if not temp_objects and original_selection:
+            # Handle selection based on whether we have temp objects and/or atlas objects
+            if atlas_objects:
+                # We have atlas objects - need to adjust selection
+                # Atlas objects REPLACE the original objects that were grouped
+
+                # Get list of objects that were grouped into atlases
+                atlased_source_objects = uv_stats.get('atlased_source_objects', [])
+
+                # Deselect all first
+                bpy.ops.object.select_all(action='DESELECT')
+
+                # Select atlas objects (these replace the grouped objects)
+                for atlas_obj in atlas_objects:
+                    if atlas_obj.name in bpy.data.objects:
+                        atlas_obj.select_set(True)
+
+                # Select temp_objects that were NOT grouped into atlases
+                if temp_objects:
+                    for obj in temp_objects:
+                        if obj not in atlased_source_objects and obj.name in bpy.data.objects:
+                            obj.select_set(True)
+
+                # Select non-mesh objects (EMPTYs, lights, cameras, etc.)
+                for obj in non_mesh_objects:
+                    if obj.name in bpy.data.objects:
+                        obj.select_set(True)
+
+                # Set active object
+                if atlas_objects:
+                    context.view_layer.objects.active = atlas_objects[0]
+                elif temp_objects:
+                    context.view_layer.objects.active = temp_objects[0]
+
+            elif not temp_objects and original_selection:
+                # No temp objects, no atlases - restore original selection
                 bpy.ops.object.select_all(action='DESELECT')
                 for obj in original_selection:
                     if obj.name in bpy.data.objects:
                         obj.select_set(True)
                 if original_selection:
                     context.view_layer.objects.active = original_selection[0]
-            
+
             export_params = {
                 'filepath': tmp_path,
                 'export_format': 'GLB',
@@ -1262,7 +1363,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             if temp_objects:
                 # Deselect all first
                 bpy.ops.object.select_all(action='DESELECT')
-                
+
                 # Delete temporary objects and their mesh data
                 for temp_obj in temp_objects:
                     try:
@@ -1271,10 +1372,10 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                             # Get mesh data before deletion
                             mesh_data = temp_obj.data if temp_obj.data else None
                             mesh_name = mesh_data.name if mesh_data else None
-                            
+
                             # Delete the object
                             bpy.data.objects.remove(temp_obj, do_unlink=True)
-                            
+
                             # Remove the mesh data if it exists and isn't used elsewhere
                             if mesh_name and mesh_name in bpy.data.meshes:
                                 mesh_data = bpy.data.meshes[mesh_name]
@@ -1283,7 +1384,26 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     except Exception as e:
                         # Silently continue cleanup even if one object fails
                         print(f"Warning: Could not clean up temporary object {temp_obj.name}: {e}")
-            
+
+            # Clean up atlas objects (they're temporary joined meshes)
+            if atlas_objects:
+                for atlas_obj in atlas_objects:
+                    try:
+                        if atlas_obj.name in bpy.data.objects:
+                            mesh_data = atlas_obj.data if atlas_obj.data else None
+                            mesh_name = mesh_data.name if mesh_data else None
+
+                            # Delete the atlas object
+                            bpy.data.objects.remove(atlas_obj, do_unlink=True)
+
+                            # Remove the mesh data
+                            if mesh_name and mesh_name in bpy.data.meshes:
+                                mesh_data = bpy.data.meshes[mesh_name]
+                                if mesh_data.users == 0:
+                                    bpy.data.meshes.remove(mesh_data)
+                    except Exception as e:
+                        print(f"Warning: Could not clean up atlas object {atlas_obj.name}: {e}")
+
             # Restore original selection
             if original_selection:
                 bpy.ops.object.select_all(action='DESELECT')
@@ -1437,12 +1557,32 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         row = uv_box.row()
         row.label(text="Auto UV Unwrap (if no uv map present)", icon='UV')
         row.prop(settings, "enable_auto_uv", text="", emboss=True)
-        
-        if settings.enable_auto_uv and not UV_UNWRAP_AVAILABLE:
-            col = uv_box.column(align=True)
-            col.scale_y = 0.85
-            col.label(text="UV unwrap module not available", icon='ERROR')
-        
+
+        if settings.enable_auto_uv:
+            if not UV_UNWRAP_AVAILABLE and not UV_ATLAS_AVAILABLE:
+                col = uv_box.column(align=True)
+                col.scale_y = 0.85
+                col.label(text="UV unwrap modules not available", icon='ERROR')
+            else:
+                col = uv_box.column(align=True)
+                col.separator()
+
+                # Material-based atlasing toggle
+                row = col.row()
+                row.prop(settings, "enable_uv_atlasing", text="Material-Based UV Atlasing")
+
+                if settings.enable_uv_atlasing and UV_ATLAS_AVAILABLE:
+                    # Atlas settings (indented)
+                    atlas_col = col.column(align=True)
+                    atlas_col.separator()
+                    atlas_col.prop(settings, "atlas_min_objects")
+                    atlas_col.prop(settings, "atlas_texture_size")
+                    atlas_col.prop(settings, "atlas_margin")
+                elif settings.enable_uv_atlasing and not UV_ATLAS_AVAILABLE:
+                    col.separator()
+                    col.label(text="UV atlas module not available", icon='ERROR')
+                    col.label(text="Falling back to individual unwrap", icon='INFO')
+
         # Decimate - in its own box
         decimate_box = main_box.box()
         row = decimate_box.row()

@@ -5,6 +5,49 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-01-13
+
+### Added - UV Atlas System (New Feature)
+- **Material-based UV atlas packing** - Intelligent grouping and packing system to reduce draw calls
+  - Automatically groups objects sharing the same material
+  - Creates optimized UV atlases using Lightmap Pack algorithm
+  - Significantly improves rendering performance in game engines and WebGL
+  - Smart fallback to individual unwrapping for small groups or complex cases
+- **Advanced UV atlas features**
+  - Configurable minimum group size threshold (default: 2 objects)
+  - Adjustable atlas texture size (default: 1024px)
+  - Customizable margin between UV islands (default: 0.05)
+  - Preserves original objects and UV maps (non-destructive workflow)
+  - Respects existing UV maps on objects
+- **Comprehensive statistics and reporting**
+  - Tracks atlases created and objects packed
+  - Reports individual unwraps and skipped objects
+  - Detailed console output with progress indicators
+  - Success/failure tracking for each operation
+- **Intelligent material grouping**
+  - Identifies primary (most-used) material per object
+  - Groups objects by shared materials automatically
+  - Filters groups by minimum size threshold
+  - Falls back to individual processing for small groups
+
+### Technical Details
+**New Files:**
+- `uv_atlas.py` - Material-based UV atlas module (505 lines)
+  - `has_uv_map()` - Check if object has UV map
+  - `get_primary_material()` - Get most-used material from object
+  - `group_objects_by_material()` - Group objects by shared materials
+  - `create_temp_joined_mesh()` - Join objects for atlas creation
+  - `apply_lightmap_pack()` - Apply Lightmap Pack UV unwrapping
+  - `smart_uv_unwrap_individual()` - Fallback individual unwrapping
+  - `auto_unwrap_with_atlasing()` - Main entry point with full control
+
+**Benefits:**
+- ✅ Reduces draw calls by grouping objects with same material
+- ✅ Optimizes UV packing for better texture utilization
+- ✅ Improves WebGL and game engine performance
+- ✅ Non-destructive workflow preserves original scene
+- ✅ Smart fallback system handles edge cases gracefully
+
 ## [0.3.0] - 2025-01-12
 
 ### Added - Subdivision Control (New Feature)
