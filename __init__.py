@@ -80,13 +80,6 @@ except ImportError:
     TEXTURE_SCALER_AVAILABLE = False
     print("Warning: texture_scaler module not available.")
 
-# Try to import texture analyzer module (legacy Pillow-based)
-try:
-    from . import texture_analyzer
-    TEXTURE_ANALYZER_AVAILABLE = True
-except ImportError:
-    TEXTURE_ANALYZER_AVAILABLE = False
-    print("Warning: texture_analyzer module not available.")
 
 # Try to import updater module
 try:
@@ -1077,7 +1070,7 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
             
             # Process textures: scale down (NON-DESTRUCTIVE)
             # WebP conversion happens automatically in Blender's glTF exporter
-            if settings.enable_texture_optimization and (TEXTURE_SCALER_AVAILABLE or TEXTURE_ANALYZER_AVAILABLE):
+            if settings.enable_texture_optimization and TEXTURE_SCALER_AVAILABLE:
                 update_export_status(context, "Optimizing textures...")
                 try:
                     # Get target size from settings
@@ -1090,40 +1083,25 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     # This is NON-DESTRUCTIVE - originals remain in scene
                     # Format conversion to WebP happens automatically during GLB export via 'export_image_format': 'WEBP'
 
-                    # Use native texture scaler (preferred - no dependencies) or fallback to Pillow-based
-                    if TEXTURE_SCALER_AVAILABLE:
-                        # Native Blender texture scaling - no external dependencies
-                        texture_result = texture_scaler.process_textures_native(
-                            context,
-                            scale_to_target=True,
-                            compress=False,  # glTF exporter handles WebP conversion
-                            target_size=target_size,
-                            excluded_materials=excluded_materials,
-                            status_callback=lambda msg: update_export_status(context, msg)
-                        )
-                        # Map native result to expected format
-                        texture_scaled_copies = texture_result.get('processed_images', {})
-                    else:
-                        # Fallback to Pillow-based texture analyzer
-                        texture_result = texture_analyzer.process_textures(
-                            context,
-                            scale_to_1k=True,
-                            convert_to_jpeg=False,  # glTF exporter handles WebP conversion
-                            target_size=target_size,
-                            excluded_materials=excluded_materials,
-                            status_callback=lambda msg: update_export_status(context, msg)
-                        )
-                        texture_scaled_copies = texture_result.get('scaled_copies', {})
+                    # Native Blender texture scaling - no external dependencies
+                    texture_result = texture_scaler.process_textures_native(
+                        context,
+                        scale_to_target=True,
+                        compress=False,  # glTF exporter handles WebP conversion
+                        target_size=target_size,
+                        excluded_materials=excluded_materials,
+                        status_callback=lambda msg: update_export_status(context, msg)
+                    )
+                    # Map native result to expected format
+                    texture_scaled_copies = texture_result.get('processed_images', {})
 
                     # Add texture processing info to export info
-                    # Both native and Pillow-based return 'scaled' and 'errors' keys
                     scaled_count = texture_result.get('scaled', 0)
                     if scaled_count > 0:
                         size_label = settings.texture_max_size
-                        method = "Native" if TEXTURE_SCALER_AVAILABLE else "Pillow"
-                        info_parts.append(f"Scaled {scaled_count} texture(s) to {size_label}px ({method})")
+                        info_parts.append(f"Scaled {scaled_count} texture(s) to {size_label}px (Native)")
                         info_parts.append("WebP export by glTF exporter")
-                    
+
                     # Report errors if any
                     if texture_result['errors']:
                         for error in texture_result['errors'][:3]:  # Show first 3 errors
@@ -1343,18 +1321,18 @@ class FRAMO_OT_export_to_web(bpy.types.Operator):
                     print(f"Warning: Could not fully restore subdivision levels: {e}")
             
             # Restore original textures and clean up temporary copies
-            if TEXTURE_ANALYZER_AVAILABLE and texture_scaled_copies:
+            if TEXTURE_SCALER_AVAILABLE and texture_scaled_copies:
                 try:
                     # Restore scaled texture references
                     for original_img, scaled_copy in texture_scaled_copies.items():
                         if original_img and original_img.name in bpy.data.images:
                             # Restore original in materials
-                            texture_analyzer.replace_image_in_materials(context, scaled_copy, original_img)
-                            
+                            texture_scaler.replace_image_in_materials(context, scaled_copy, original_img)
+
                             # Remove scaled copy from Blender data
                             if scaled_copy and scaled_copy.name in bpy.data.images:
                                 bpy.data.images.remove(scaled_copy)
-                    
+
                     print("✓ Restored original textures after export (non-destructive)")
                 except Exception as e:
                     print(f"Warning: Could not fully restore textures: {e}")
@@ -1822,30 +1800,24 @@ class FRAMO_PT_export_panel(bpy.types.Panel):
         
         if settings.enable_texture_optimization:
             col = texture_box.column(align=True)
-            
-            # Check if Pillow is available
-            if not TEXTURE_ANALYZER_AVAILABLE or not texture_analyzer.is_pillow_available():
+
+            # Check if native texture scaler is available
+            if not TEXTURE_SCALER_AVAILABLE:
                 col.separator()
                 warning_row = col.row()
                 warning_row.scale_y = 0.9
-                warning_row.label(text="Pillow not installed", icon='ERROR')
-                
-                if DEPENDENCIES_AVAILABLE:
-                    install_row = col.row()
-                    install_row.scale_y = 1.0
-                    op = install_row.operator("framo.install_dependencies", text="Install Pillow", icon='IMPORT')
-                    op.package = "Pillow"
+                warning_row.label(text="Texture scaler module not available", icon='ERROR')
             else:
                 # Target size selector
                 col.prop(settings, "texture_max_size", text="Max Size")
-                
+
                 # Show texture analysis for selected objects
                 if context.selected_objects:
                     try:
                         # Get excluded material names
                         excluded_materials = [item.material_name for item in settings.texture_exclude_materials if item.material_name]
-                        
-                        texture_analysis = texture_analyzer.analyze_textures(context, excluded_materials=excluded_materials)
+
+                        texture_analysis = texture_scaler.analyze_textures_native(context, excluded_materials=excluded_materials)
                         target_size = int(settings.texture_max_size)
                         
                         if texture_analysis['total'] > 0:

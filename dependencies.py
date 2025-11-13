@@ -9,23 +9,8 @@ import sys
 import os
 from typing import List, Tuple, Optional
 
-# Required dependencies
-REQUIRED_DEPENDENCIES = {
-    'pillow': {
-        'name': 'Pillow',
-        'description': 'Image processing library for texture optimization',
-        'required_for': ['texture_analyzer'],
-        'optional': False,
-        'install_order': 1
-    },
-    'numpy': {
-        'name': 'numpy',
-        'description': 'Numerical computing (required for image processing)',
-        'required_for': ['texture_analyzer'],
-        'optional': False,
-        'install_order': 2
-    },
-}
+# No dependencies required - addon uses Blender's native functions
+REQUIRED_DEPENDENCIES = {}
 
 
 def get_python_executable() -> str:
