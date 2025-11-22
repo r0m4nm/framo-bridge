@@ -1,2 +1,2 @@
-ADDON_VERSION = (0, 4, 1)
+ADDON_VERSION = (0, 4, 2)
 

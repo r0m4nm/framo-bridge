@@ -405,10 +405,11 @@ class FramoBridgePreferences(AddonPreferences):
             row.label(text=f"Error: {error_msg}", icon='ERROR')
         elif update_state.get("pending_restart"):
             # Show success message after installation
-            row = box.row()
-            row.alert = False
-            row.scale_y = 1.3
-            row.label(text="✓ Update installed! Restart Blender to use new version (or disable/re-enable addon in Preferences).", icon='CHECKMARK')
+            col = box.column(align=True)
+            row = col.row()
+            row.label(text="✓ Update installed!", icon='CHECKMARK')
+            row = col.row()
+            row.label(text="Restart Blender")
         elif update_state.get("last_check_time"):
             row = box.row()
             if update_state.get("update_available"):

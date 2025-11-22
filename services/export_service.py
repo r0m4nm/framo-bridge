@@ -128,7 +128,7 @@ class ExportService:
                             if obj.name in context.view_layer.objects:
                                 obj_to_target[obj] = obj
                             else:
-                                proxy = bpy.data.objects.new(f"PROXY_{obj.name}", temp_data)
+                                proxy = bpy.data.objects.new(f"FRAMO_{obj.name}", temp_data)
                                 proxy.hide_viewport = True
                                 proxy.hide_render = True
                                 context.collection.objects.link(proxy)
