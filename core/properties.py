@@ -141,40 +141,41 @@ class DecimateIndividualOverride(PropertyGroup):
 
 class FramoExportSettings(PropertyGroup):
     # Compression Settings
+    # NOTE: Default values match 'MEDIUM' preset since that's the default compression_preset
     use_draco: BoolProperty(
         name="Use Draco Compression",
         description="Enable Draco mesh compression for smaller file sizes",
-        default=False
+        default=True  # MEDIUM preset enables Draco
     )
-    
+
     draco_compression_level: IntProperty(
         name="Compression Level",
         description="Draco compression level (0=least compression, 10=most compression)",
-        default=6,
+        default=6,  # MEDIUM preset value
         min=0,
         max=10
     )
-    
+
     draco_quantization_position: IntProperty(
         name="Position Quantization",
         description="Quantization bits for position values (higher=better quality)",
-        default=14,
+        default=14,  # MEDIUM preset value
         min=8,
         max=16
     )
-    
+
     draco_quantization_normal: IntProperty(
         name="Normal Quantization",
         description="Quantization bits for normal values (higher=better quality)",
-        default=10,
+        default=10,  # MEDIUM preset value
         min=8,
         max=16
     )
-    
+
     draco_quantization_texcoord: IntProperty(
         name="Texture Coord Quantization",
         description="Quantization bits for texture coordinates (higher=better quality)",
-        default=12,
+        default=12,  # MEDIUM preset value
         min=8,
         max=16
     )
