@@ -24,6 +24,7 @@ Thumbs.db
 .plans/
 .guides/
 .claude/
+.plans/
 
 #zip files
 *.zip

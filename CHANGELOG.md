@@ -5,6 +5,26 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-11-22
+
+### Fixed
+- **Critical crash fix** - Resolved Blender crash after export when many objects are selected
+  - Root cause: Selection restoration triggered immediately after mesh data swaps caused Blender to access invalid state
+  - Solution: Deferred both cleanup and selection restoration to timer callbacks that run after the operator returns
+  - Export now reliably completes without crashes regardless of selection size
+
+### Changed
+- **Deferred cleanup system** - Proxy objects and temporary meshes are now cleaned up via timer callback (0.1s delay)
+- **Deferred selection restore** - Original selection is restored via timer callback (0.2s delay) after cleanup completes
+- **Improved state management** - All object references now stored by name to prevent stale reference issues
+- **Logging improvements** - Added immediate-flush file logging to `logs/framo.log` for debugging crash scenarios
+
+### Technical Details
+- Updated `context_managers.py` - `preserve_blender_state` now uses deferred restoration
+- Updated `export_service.py` - Cleanup moved to `deferred_cleanup()` timer callback
+- Updated `decimation.py`, `uv_atlas.py` - Store object names instead of references for state restoration
+- Silenced `clear_export_status` timer exceptions (Blender context restriction, non-critical)
+
 ## [0.4.0] - 2025-01-13
 
 ### Added - UV Atlas System (New Feature)

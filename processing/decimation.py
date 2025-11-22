@@ -204,32 +204,46 @@ def decimate_with_modifier(obj, target_ratio: float, verbose: bool = True) -> bo
         # Apply the modifier
         mesh_before = len(obj.data.polygons)
         
-        # Store current selection state (ALL selected objects, not just active)
-        previous_selected = [o for o in bpy.context.selected_objects]
-        previous_active = bpy.context.view_layer.objects.active
-        previous_mode = bpy.context.object.mode if bpy.context.object else 'OBJECT'
-        
+        # Store current selection state using NAMES (safer - objects might change)
+        previous_selected_names = [o.name for o in bpy.context.selected_objects]
+        previous_active_name = bpy.context.view_layer.objects.active.name if bpy.context.view_layer.objects.active else None
+
+        # Manage visibility
+        was_hidden = obj.hide_viewport
+        if was_hidden:
+            obj.hide_viewport = False
+
         # Select and make active
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
-        
+
         # Ensure object mode
         if bpy.context.object and bpy.context.object.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
-        
+
         # Apply modifier
         bpy.ops.object.modifier_apply(modifier=modifier.name)
-        
+
         mesh_after = len(obj.data.polygons)
-        
-        # Restore full selection state
+
+        # Restore full selection state using names
         bpy.ops.object.select_all(action='DESELECT')
-        for prev_obj in previous_selected:
-            if prev_obj and prev_obj.name in bpy.data.objects:
-                prev_obj.select_set(True)
-        if previous_active and previous_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = previous_active
+        for obj_name in previous_selected_names:
+            if obj_name in bpy.data.objects:
+                try:
+                    bpy.data.objects[obj_name].select_set(True)
+                except Exception:
+                    pass
+        if previous_active_name and previous_active_name in bpy.data.objects:
+            try:
+                bpy.context.view_layer.objects.active = bpy.data.objects[previous_active_name]
+            except Exception:
+                pass
+            
+        # Restore visibility
+        if was_hidden:
+            obj.hide_viewport = True
         
         if verbose:
             reduction_pct = ((mesh_before - mesh_after) / mesh_before * 100) if mesh_before > 0 else 0

@@ -129,11 +129,11 @@ def create_temp_joined_mesh(objects: List[bpy.types.Object],
         return None
 
     try:
-        # Store current state
-        previous_active = bpy.context.view_layer.objects.active
-        previous_selection = [o for o in bpy.context.selected_objects]
+        # Store current state using NAMES (safer - objects might change during operation)
+        previous_active_name = bpy.context.view_layer.objects.active.name if bpy.context.view_layer.objects.active else None
+        previous_selection_names = [o.name for o in bpy.context.selected_objects]
 
-        # Create copies of objects
+        # Create copies of objects (hidden from user view)
         temp_copies = []
         for obj in objects:
             copy = obj.copy()
@@ -144,7 +144,7 @@ def create_temp_joined_mesh(objects: List[bpy.types.Object],
         if not temp_copies:
             return None
 
-        # Select all copies
+        # Select all copies for joining
         bpy.ops.object.select_all(action='DESELECT')
         for copy in temp_copies:
             copy.select_set(True)
@@ -159,17 +159,26 @@ def create_temp_joined_mesh(objects: List[bpy.types.Object],
         joined = bpy.context.active_object
         joined.name = f"UV_Atlas_{material_name}"
 
+        # Note: We don't hide here yet - the object needs to be visible for UV operations
+        # It will be hidden after UV packing is complete (by the caller or cleanup)
+
         if verbose:
             print(f"  → Created joined mesh '{joined.name}' from {len(objects)} objects")
 
-        # Restore selection
+        # Restore selection using names
         bpy.ops.object.select_all(action='DESELECT')
-        for o in previous_selection:
-            if o.name in bpy.data.objects:
-                o.select_set(True)
+        for obj_name in previous_selection_names:
+            if obj_name in bpy.data.objects:
+                try:
+                    bpy.data.objects[obj_name].select_set(True)
+                except Exception:
+                    pass
 
-        if previous_active and previous_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = previous_active
+        if previous_active_name and previous_active_name in bpy.data.objects:
+            try:
+                bpy.context.view_layer.objects.active = bpy.data.objects[previous_active_name]
+            except Exception:
+                pass
 
         return joined
 
@@ -201,9 +210,9 @@ def apply_lightmap_pack(obj: bpy.types.Object,
         return False
 
     try:
-        # Store current state
-        previous_active = bpy.context.view_layer.objects.active
-        previous_selection = [o for o in bpy.context.selected_objects]
+        # Store current state using NAMES (safer - objects might change)
+        previous_active_name = bpy.context.view_layer.objects.active.name if bpy.context.view_layer.objects.active else None
+        previous_selection_names = [o.name for o in bpy.context.selected_objects]
 
         # Select only this object
         bpy.ops.object.select_all(action='DESELECT')
@@ -242,14 +251,20 @@ def apply_lightmap_pack(obj: bpy.types.Object,
         # Return to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Restore previous state
+        # Restore previous state using names
         bpy.ops.object.select_all(action='DESELECT')
-        for o in previous_selection:
-            if o.name in bpy.data.objects:
-                o.select_set(True)
+        for obj_name in previous_selection_names:
+            if obj_name in bpy.data.objects:
+                try:
+                    bpy.data.objects[obj_name].select_set(True)
+                except Exception:
+                    pass
 
-        if previous_active and previous_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = previous_active
+        if previous_active_name and previous_active_name in bpy.data.objects:
+            try:
+                bpy.context.view_layer.objects.active = bpy.data.objects[previous_active_name]
+            except Exception:
+                pass
 
         return True
 
@@ -289,9 +304,9 @@ def smart_uv_unwrap_individual(obj: bpy.types.Object,
         return False
 
     try:
-        # Store current state
-        previous_active = bpy.context.view_layer.objects.active
-        previous_selection = [o for o in bpy.context.selected_objects]
+        # Store current state using NAMES (safer - objects might change)
+        previous_active_name = bpy.context.view_layer.objects.active.name if bpy.context.view_layer.objects.active else None
+        previous_selection_names = [o.name for o in bpy.context.selected_objects]
 
         # Select only this object
         bpy.ops.object.select_all(action='DESELECT')
@@ -327,14 +342,20 @@ def smart_uv_unwrap_individual(obj: bpy.types.Object,
         # Return to object mode
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Restore previous state
+        # Restore previous state using names
         bpy.ops.object.select_all(action='DESELECT')
-        for o in previous_selection:
-            if o.name in bpy.data.objects:
-                o.select_set(True)
+        for obj_name in previous_selection_names:
+            if obj_name in bpy.data.objects:
+                try:
+                    bpy.data.objects[obj_name].select_set(True)
+                except Exception:
+                    pass
 
-        if previous_active and previous_active.name in bpy.data.objects:
-            bpy.context.view_layer.objects.active = previous_active
+        if previous_active_name and previous_active_name in bpy.data.objects:
+            try:
+                bpy.context.view_layer.objects.active = bpy.data.objects[previous_active_name]
+            except Exception:
+                pass
 
         return True
 

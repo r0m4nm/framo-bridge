@@ -49,6 +49,11 @@ def smart_uv_unwrap(obj, angle_limit: float = 66.0, island_margin: float = 0.02,
         previous_mode = bpy.context.object.mode if bpy.context.object else 'OBJECT'
         previous_selection = [o for o in bpy.context.selected_objects]
         
+        # Manage visibility
+        was_hidden = obj.hide_viewport
+        if was_hidden:
+            obj.hide_viewport = False
+        
         # Select only this object
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
@@ -93,6 +98,10 @@ def smart_uv_unwrap(obj, angle_limit: float = 66.0, island_margin: float = 0.02,
         
         if previous_active and previous_active.name in bpy.data.objects:
             bpy.context.view_layer.objects.active = previous_active
+            
+        # Restore visibility
+        if was_hidden:
+            obj.hide_viewport = True
         
         return True
         
