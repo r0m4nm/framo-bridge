@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2025-11-28
+
+### Fixed
+- **Fixed addon installation error** - Changed package folder name from `framo-bridge` to `framo_bridge` (underscore instead of hyphen). Python module names cannot contain hyphens, which caused "No module named 'framo-bridge.core'" error during installation.
+
 ## [0.4.3] - 2025-11-22
 
 ### Fixed

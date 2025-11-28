@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Build script to create the Framo Bridge addon distribution zip file.
-Creates a zip with framo-bridge/ as the root folder.
+Creates a zip with framo_bridge/ as the root folder (underscore required for Python imports).
 """
 
 import os
@@ -102,7 +102,7 @@ def create_zip():
         for filename in INCLUDE_FILES:
             file_path = project_root / filename
             if file_path.exists():
-                arcname = f'framo-bridge/{filename}'
+                arcname = f'framo_bridge/{filename}'
                 zipf.write(file_path, arcname)
                 print(f"  Added: {arcname}")
             else:
@@ -116,7 +116,7 @@ def create_zip():
                     if file_path.is_file() and not should_exclude(file_path):
                         # Get relative path from folder
                         rel_path = file_path.relative_to(folder_path)
-                        arcname = f'framo-bridge/{folder_name}/{rel_path}'
+                        arcname = f'framo_bridge/{folder_name}/{rel_path}'
                         zipf.write(file_path, arcname)
                         print(f"  Added: {arcname}")
             else:
