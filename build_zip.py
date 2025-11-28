@@ -12,14 +12,6 @@ from pathlib import Path
 # Files and folders to include
 INCLUDE_FILES = [
     '__init__.py',
-    'updater.py',
-    'decimation.py',
-    'dependencies.py',
-    'material_analyzer.py',
-    'material_cleaner.py',
-    'texture_scaler.py',      # Native texture scaling (no dependencies)
-    'uv_unwrap.py',
-    'uv_atlas.py',            # Material-based UV atlas packing
     'README.md',
     'CHANGELOG.md',
     'INSTALL.md',
@@ -28,6 +20,11 @@ INCLUDE_FILES = [
 ]
 
 INCLUDE_FOLDERS = [
+    'core',
+    'processing',
+    'services',
+    'ui',
+    'utils',
     'icons',
 ]
 
