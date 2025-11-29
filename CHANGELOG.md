@@ -5,6 +5,11 @@ All notable changes to Framo Bridge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2025-11-29
+
+### Fixed
+- **Fixed panel showing wrong version** - Version constant was duplicated in two places and out of sync. Now `ADDON_VERSION` is dynamically imported from `bl_info`, ensuring single source of truth.
+
 ## [0.4.5] - 2025-11-28
 
 ### Fixed

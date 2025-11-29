@@ -22,3 +22,5 @@
 2025-11-22 15:05:41 - DEBUG - Deferred selection restore: Restored 51/51 selections
 2025-11-22 15:05:41 - DEBUG - Deferred selection restore: Set active to body
 2025-11-22 15:05:41 - DEBUG - Deferred selection restore: Complete!
+2025-11-29 11:05:48 - INFO - Framo Bridge addon registering...
+2025-11-29 11:05:48 - INFO - Framo Bridge registered successfully
